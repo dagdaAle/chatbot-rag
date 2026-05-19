@@ -1,16 +1,29 @@
-"""Client Qdrant e gestione collezioni."""
+"""Client Qdrant e gestione collezioni.
+
+Supporta due modalità:
+  - server mode (default): si connette a un server Qdrant remoto
+  - local mode: Qdrant embedded, scrive su disco (ideale per Railway single-instance)
+"""
+import os
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 from app.config import settings
 from app.core.embeddings import get_current_embedding_size
 
-# Collezione legacy (mantenuta per retrocompatibilità)
 COLLECTION_NAME = "documents"
 
 
 def get_client() -> QdrantClient:
-    """Restituisce il client Qdrant."""
+    """Restituisce il client Qdrant.
+
+    Se QDRANT_LOCAL_PATH è impostato, usa la modalità embedded (local).
+    Altrimenti si connette a un server remoto.
+    """
+    local_path = os.getenv("QDRANT_LOCAL_PATH")
+    if local_path:
+        return QdrantClient(path=local_path)
+
     return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
 

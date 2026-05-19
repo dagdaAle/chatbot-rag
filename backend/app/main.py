@@ -1,6 +1,7 @@
 """Entry point FastAPI."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.api import health, documents, chat, prompt, models, knowledge, conversations
@@ -29,7 +30,12 @@ app.include_router(prompt.router)
 app.include_router(models.router)
 
 
-@app.get("/")
-async def root() -> dict:
-    """Root endpoint."""
-    return {"message": "Chatbot RAG API", "docs": "/docs"}
+# ── Frontend statico (SPA) ────────────────────────────────────────────
+# In modalità single-instance, il backend serve anche il frontend compilato.
+# Le route API hanno la precedenza, tutto il resto va all'SPA.
+# Il path /app/static è popolato nella build Docker multi-stage.
+import os
+
+_static_dir = "/app/static"
+if os.path.isdir(_static_dir):
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="frontend")
