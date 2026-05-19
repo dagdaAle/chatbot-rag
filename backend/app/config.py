@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # Provider LLM: "openai" o "ollama"
     llm_provider: str = "openai"
     openai_api_key: str = ""
+    openai_base_url: str = ""  # Es: https://api.deepseek.com (vuoto = default OpenAI)
+    openai_chat_model: str = "gpt-4o-mini"  # Default per chat
+    openai_embedding_model: str = "text-embedding-3-small"  # Default per embedding
     
     # Configurazione Ollama
     # Ollama gira sul Mac Mini host (non in Docker)
@@ -49,12 +52,12 @@ class RuntimeConfig:
         
         # Provider e modello per gli EMBEDDING (indipendente dalla chat)
         self.embedding_provider: str = "openai"  # Default: OpenAI per embedding
-        self.embedding_model: str = "text-embedding-3-small"
+        self.embedding_model: str = settings.openai_embedding_model
 
     def _default_chat_model(self) -> str:
         if self.chat_provider == "ollama":
             return settings.ollama_chat_model
-        return "gpt-4o-mini"
+        return settings.openai_chat_model
 
 
 runtime_config = RuntimeConfig()
