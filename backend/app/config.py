@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     openai_base_url: str = ""  # Es: https://api.deepseek.com (vuoto = default OpenAI)
     openai_chat_model: str = "gpt-4o-mini"  # Default per chat
     openai_embedding_model: str = "text-embedding-3-small"  # Default per embedding
+    openai_embedding_base_url: str = ""  # URL per embedding (vuoto = default OpenAI)
+    openai_embedding_api_key: str = ""  # Chiave separata per embedding (vuoto = usa openai_api_key)
     
     # Configurazione Ollama
     # Ollama gira sul Mac Mini host (non in Docker)

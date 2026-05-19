@@ -34,10 +34,9 @@ def _get_openai_client() -> OpenAI:
     if _client is None:
         if not settings.openai_api_key:
             raise RuntimeError("OPENAI_API_KEY non configurata")
-        kwargs = {"api_key": settings.openai_api_key}
-        if settings.openai_base_url:
-            kwargs["base_url"] = settings.openai_base_url
-        _client = OpenAI(**kwargs)
+        api_key = settings.openai_embedding_api_key or settings.openai_api_key
+        base_url = settings.openai_embedding_base_url  # vuoto = default OpenAI
+        _client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
     return _client
 
 
