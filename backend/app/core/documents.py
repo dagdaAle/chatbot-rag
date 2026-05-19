@@ -8,8 +8,8 @@ from pypdf import PdfReader
 
 from app.core.embeddings import get_embeddings_batch
 
-CHUNK_SIZE = 1000  # chunk più grandi per più contesto
-CHUNK_OVERLAP = 150
+CHUNK_SIZE = 2000  # chunk più grandi per più contesto
+CHUNK_OVERLAP = 250
 
 # Directory base per salvare i PDF originali
 UPLOADS_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
@@ -66,7 +66,7 @@ def chunk_text_with_pages(
     chunk_size: int = CHUNK_SIZE,
     overlap: int = CHUNK_OVERLAP,
 ) -> list[dict]:
-    """Divide il testo (pagina per pagina) in chunk con overlap.
+    """Divide il testo (pagina per pagina) in chunk con overlap e chunking semantico.
 
     Ogni chunk restituisce: {"text": ..., "page_start": ..., "page_end": ...}
     """
@@ -95,6 +95,28 @@ def chunk_text_with_pages(
     start = 0
     while start < len(full_text):
         end = start + chunk_size
+
+        # Semantic chunking: trova il miglior punto di divisione
+        if end < len(full_text):
+            # Cerca la fine di un paragrafo (doppio newline)
+            paragraph_end = full_text.rfind('\n\n', start, min(end + 200, len(full_text)))
+            if paragraph_end > start:
+                end = paragraph_end + 2
+            else:
+                # Cerca la fine di una frase (. ! ?)
+                sentence_end = max(
+                    full_text.rfind('. ', start, min(end + 100, len(full_text))),
+                    full_text.rfind('! ', start, min(end + 100, len(full_text))),
+                    full_text.rfind('? ', start, min(end + 100, len(full_text)))
+                )
+                if sentence_end > start:
+                    end = sentence_end + 2
+                else:
+                    # Cerca uno spazio per evitare di spezzare parole
+                    space_pos = full_text.rfind(' ', start, min(end + 50, len(full_text)))
+                    if space_pos > start:
+                        end = space_pos
+
         chunk_text = full_text[start:end]
         if chunk_text.strip():
             # Determina pagine coinvolte
@@ -150,7 +172,7 @@ def process_pdf_to_points(
             "filename": filename,
             "uploaded_at": uploaded_at,
             "chunk_index": i,
-            "text": chunk["text"][:2000],
+            "text": chunk["text"],
             "page_start": chunk["page_start"],
             "page_end": chunk["page_end"],
         }
