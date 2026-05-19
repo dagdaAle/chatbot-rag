@@ -46,6 +46,7 @@ class ProviderConfigResponse(BaseModel):
     embedding_model: str
     ollama_available: bool
     openai_available: bool
+    anthropic_available: bool
 
 
 # ============ Modelli OpenAI predefiniti ============
@@ -55,6 +56,12 @@ OPENAI_CHAT_MODELS = [
     ModelInfo(id="gpt-4o", name="GPT-4o", provider="openai"),
     ModelInfo(id="gpt-4-turbo", name="GPT-4 Turbo", provider="openai"),
     ModelInfo(id="gpt-3.5-turbo", name="GPT-3.5 Turbo", provider="openai"),
+]
+
+ANTHROPIC_CHAT_MODELS = [
+    ModelInfo(id="claude-sonnet-4-20250514", name="Claude Sonnet 4", provider="anthropic"),
+    ModelInfo(id="claude-opus-4-7", name="Claude Opus 4.7", provider="anthropic"),
+    ModelInfo(id="claude-haiku-4-5-20251001", name="Claude Haiku 4.5", provider="anthropic"),
 ]
 
 OPENAI_EMBEDDING_MODELS = [
@@ -107,25 +114,30 @@ async def get_config() -> ProviderConfigResponse:
         embedding_model=runtime_config.embedding_model,
         ollama_available=_is_ollama_available(),
         openai_available=bool(settings.openai_api_key),
+        anthropic_available=bool(settings.anthropic_api_key),
     )
 
 
 @router.get("/chat", response_model=ModelsListResponse)
 async def list_chat_models() -> ModelsListResponse:
-    """Lista dei modelli chat disponibili (OpenAI + Ollama)."""
+    """Lista dei modelli chat disponibili (OpenAI + Anthropic + Ollama)."""
     models: list[ModelInfo] = []
-    
+
     # Aggiungi modelli OpenAI se la chiave è configurata
     if settings.openai_api_key:
         models.extend(OPENAI_CHAT_MODELS)
-    
+
+    # Aggiungi modelli Anthropic se la chiave è configurata
+    if settings.anthropic_api_key:
+        models.extend(ANTHROPIC_CHAT_MODELS)
+
     # Aggiungi modelli Ollama se disponibile
     ollama_models = _fetch_ollama_models()
     # Filtra solo modelli non-embedding per la chat
     for m in ollama_models:
         if "embed" not in m.id.lower():
             models.append(m)
-    
+
     return ModelsListResponse(
         models=models,
         current=runtime_config.chat_model,
@@ -158,16 +170,19 @@ async def list_embedding_models() -> ModelsListResponse:
 @router.put("/chat", response_model=ModelSetResponse)
 async def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
     """Imposta il modello chat corrente (indipendente dagli embedding)."""
-    if request.provider not in ("openai", "ollama"):
-        raise HTTPException(status_code=400, detail="Provider non valido. Usa 'openai' o 'ollama'.")
-    
+    if request.provider not in ("openai", "anthropic", "ollama"):
+        raise HTTPException(status_code=400, detail="Provider non valido. Usa 'openai', 'anthropic' o 'ollama'.")
+
     if request.provider == "openai" and not settings.openai_api_key:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY non configurata.")
-    
+
+    if request.provider == "anthropic" and not settings.anthropic_api_key:
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY non configurata.")
+
     # Cambia SOLO il provider/modello della chat, NON tocca gli embedding
     runtime_config.chat_provider = request.provider
     runtime_config.chat_model = request.model_id
-    
+
     return ModelSetResponse(
         success=True,
         model_id=request.model_id,
