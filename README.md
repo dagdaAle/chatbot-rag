@@ -12,7 +12,7 @@ Chatbot RAG avanzato con supporto per documenti PDF, chunking semantico e divers
 
 - **Chunking intelligente**: 2000 caratteri con overlap 250, divisione semantica su paragrafi e frasi
 - **Ricerca avanzata**: MMR (Maximum Marginal Relevance) per diversità nei risultati
-- **Provider multipli**: supporto per OpenAI, Anthropic Claude, e Ollama
+- **Provider multipli**: supporto per OpenAI e Ollama
 - **Filtro per score**: filtraggio automatico di chunk poco rilevanti
 - **Citazioni precise**: risposte con citazioni verbatim dai documenti
 
@@ -20,14 +20,13 @@ Chatbot RAG avanzato con supporto per documenti PDF, chunking semantico e divers
 
 ### Chat
 - **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4-turbo, GPT-3.5-turbo
-- **Anthropic**: Claude Sonnet 4, Claude Opus 4.7, Claude Haiku 4.5
 - **Ollama**: modelli locali compatibili
 
 ### Embeddings
 - **OpenAI**: text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
 - **Ollama**: nomic-embed-text, mxbai-embed-large, all-minilm
 
-*Nota: chat e embeddings possono usare provider diversi (es. Claude + OpenAI embeddings)*
+*Nota: chat e embeddings possono usare provider diversi (es. Ollama + OpenAI embeddings)*
 
 ## Avvio rapido
 
@@ -69,16 +68,13 @@ cp .env.example .env
 
 ```env
 # Provider per chat
-LLM_PROVIDER=anthropic  # openai, anthropic, ollama
+LLM_PROVIDER=openai  # openai, ollama
 
 # OpenAI
 OPENAI_API_KEY=sk-...
 OPENAI_CHAT_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
-# Anthropic Claude
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_CHAT_MODEL=claude-sonnet-4-20250514
 
 # Ollama (locale)
 OLLAMA_BASE_URL=http://host.docker.internal:11434

@@ -10,7 +10,6 @@ from app.core.embeddings import get_query_embedding
 from app.core.qdrant_client import COLLECTION_NAME, get_client
 from app.core.knowledge import get_collection_name, get_knowledge
 from app.core.ollama_client import generate_chat_response as ollama_generate_chat_response
-from app.core.anthropic_client import generate_chat_response as anthropic_generate_chat_response
 
 _openai_client: OpenAI | None = None
 
@@ -302,8 +301,6 @@ Domanda dell'utente: {question}"""
     # Genera la risposta con il provider della CHAT
     if runtime_config.chat_provider == "ollama":
         return ollama_generate_chat_response(messages, model=runtime_config.chat_model)
-    elif runtime_config.chat_provider == "anthropic":
-        return anthropic_generate_chat_response(messages, model=runtime_config.chat_model)
 
     # Usa OpenAI
     client = _get_openai_client()
