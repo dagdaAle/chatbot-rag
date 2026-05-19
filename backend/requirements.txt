@@ -1,0 +1,10 @@
+fastapi==0.115.7
+uvicorn[standard]==0.34.0
+qdrant-client==1.12.1
+pydantic-settings==2.6.1
+pypdf==5.1.0
+openai==1.59.9
+requests==2.32.3
+python-multipart==0.0.20
+aiosqlite==0.20.0
+sqlalchemy==2.0.36
