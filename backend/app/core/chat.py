@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import numpy as np
 from openai import OpenAI
 
 from app.config import settings, runtime_config
@@ -9,6 +10,7 @@ from app.core.embeddings import get_query_embedding
 from app.core.qdrant_client import COLLECTION_NAME, get_client
 from app.core.knowledge import get_collection_name, get_knowledge
 from app.core.ollama_client import generate_chat_response as ollama_generate_chat_response
+from app.core.anthropic_client import generate_chat_response as anthropic_generate_chat_response
 
 _openai_client: OpenAI | None = None
 
@@ -21,40 +23,60 @@ DEFAULT_SYSTEM_PROMPT = """Sei un assistente AI progettato per rispondere a doma
 ## Il tuo ruolo
 - Sei un assistente cordiale, professionale e competente
 - Aiuti a interpretare e comprendere i documenti presenti nel database
-- Fornisci risposte chiare e comprensibili
+- Fornisci risposte accurate e ben documentate
 
 ## Regole FONDAMENTALI per le risposte
 
 ### 1. Usa SOLO le informazioni dal contesto fornito
 - Non inventare MAI informazioni, date, numeri o riferimenti
-- Se il contesto contiene l'informazione, citala fedelmente
+- Se il contesto contiene l'informazione, citala VERBATIM (parola per parola)
 - Se non trovi l'informazione nel contesto, dichiaralo esplicitamente
 
-### 2. Cita sempre la fonte
-- Indica il documento da cui proviene l'informazione
+### 2. Citazioni precise e complete
+- Indica SEMPRE il documento specifico: "Secondo [Nome Documento], ..."
+- Cita le informazioni LETTERALMENTE usando virgolette per i passaggi diretti
+- Se un'informazione è presente in più documenti, combinali per dare il quadro completo
+- Combina informazioni da più chunk dello stesso argomento per fornire contesto completo
 
-### 3. Mantieni il contesto della conversazione
-- Quando l'utente chiede "dimmi di più", "spiega meglio", "perché?", "e poi?", riferisciti alla risposta precedente
-- Espandi e approfondisci l'argomento discusso, non cambiare tema
-- Se l'utente usa pronomi come "questo", "quello", "lo stesso", capisci a cosa si riferisce dal contesto della conversazione
+### 3. Gestione di informazioni frammentate
+- Quando ricevi più chunk correlati, uniscili per fornire una risposta coerente
+- Non ripetere la stessa informazione se presente in più chunk
+- Integra dettagli complementari da diversi chunk per completezza
 
-### 4. Se l'informazione non è disponibile
-- Rispondi: "Non ho trovato questa informazione specifica nei documenti disponibili."
-- Proponi di riformulare la domanda
+### 4. Mantieni il contesto della conversazione
+- Quando l'utente chiede "dimmi di più", "spiega meglio", "perché?", riferisciti alla risposta precedente
+- Espandi e approfondisci l'argomento discusso usando informazioni aggiuntive dai documenti
+- Se l'utente usa pronomi come "questo", "quello", capisci a cosa si riferisce dal contesto
 
-### 5. Precisione con dati specifici
-- Date, numeri, importi, riferimenti devono essere riportati ESATTAMENTE come nei documenti
+### 5. Se l'informazione non è disponibile
+- Rispondi chiaramente: "Non ho trovato questa informazione specifica nei documenti disponibili."
+- Proponi di riformulare la domanda o suggerisci argomenti correlati presenti nei documenti
 
-### 6. Semplifica il linguaggio tecnico
-- Spiega i termini tecnici tra parentesi quando necessario
-- Rendi accessibile il contenuto senza perdere la precisione
+### 6. Precisione assoluta con dati specifici
+- Date, numeri, importi, nomi, riferimenti devono essere riportati ESATTAMENTE come nei documenti
+- Non approssimare mai i dati numerici
+- Indica sempre la fonte del dato specifico
+
+### 7. Trasparenza nelle fonti
+- Quando usi informazioni da più documenti, elenca chiaramente tutte le fonti
+- Se un'informazione è incerta o parziale nei documenti, specificalo
 
 ## Formato delle risposte
-- Usa un linguaggio chiaro e professionale
-- Per risposte lunghe, usa elenchi puntati o numerati
+- Inizia con l'informazione principale citando la fonte
+- Organizza le informazioni in modo logico e leggibile
+- Usa elenchi puntati per informazioni multiple o complesse
 - Evidenzia le informazioni chiave
-- Concludi con un'offerta di ulteriore assistenza quando appropriato
-- Rispondi SEMPRE in italiano"""
+- Termina indicando se servono chiarimenti aggiuntivi
+- Rispondi SEMPRE in italiano
+
+## Esempio di risposta ben strutturata:
+"Secondo [Nome Documento], '[citazione verbatim]'. Questo viene confermato anche in [Altro Documento] che specifica '[altra citazione]'.
+
+Le informazioni principali sono:
+• [punto 1 con fonte]
+• [punto 2 con fonte]
+
+Posso fornire ulteriori dettagli su qualsiasi aspetto specifico di questa informazione."""
 
 
 def _get_openai_client() -> OpenAI:
@@ -68,6 +90,63 @@ def _get_openai_client() -> OpenAI:
             kwargs["base_url"] = settings.openai_base_url
         _openai_client = OpenAI(**kwargs)
     return _openai_client
+
+
+def _calculate_mmr(
+    query_vector: list[float],
+    candidate_vectors: list[list[float]],
+    candidate_scores: list[float],
+    selected_indices: list[int],
+    lambda_param: float = 0.7,
+) -> int:
+    """Calcola il prossimo documento da selezionare usando Maximum Marginal Relevance.
+
+    Args:
+        query_vector: vettore della query
+        candidate_vectors: vettori dei documenti candidati
+        candidate_scores: score di similarità con la query
+        selected_indices: indici dei documenti già selezionati
+        lambda_param: parametro di bilanciamento tra relevance e diversity (0.7 = più relevance)
+
+    Returns:
+        Indice del documento da selezionare
+    """
+    if not candidate_vectors:
+        return -1
+
+    query_vec = np.array(query_vector)
+    best_score = -1
+    best_idx = -1
+
+    for i, (doc_vec, relevance_score) in enumerate(zip(candidate_vectors, candidate_scores)):
+        if i in selected_indices:
+            continue
+
+        doc_vec = np.array(doc_vec)
+
+        # Calcola similarità con documenti già selezionati
+        max_similarity = 0
+        if selected_indices:
+            similarities = []
+            for j in selected_indices:
+                selected_vec = np.array(candidate_vectors[j])
+                # Cosine similarity
+                dot_product = np.dot(doc_vec, selected_vec)
+                norm_doc = np.linalg.norm(doc_vec)
+                norm_selected = np.linalg.norm(selected_vec)
+                if norm_doc > 0 and norm_selected > 0:
+                    sim = dot_product / (norm_doc * norm_selected)
+                    similarities.append(sim)
+            max_similarity = max(similarities) if similarities else 0
+
+        # Formula MMR: λ * relevance - (1-λ) * max_similarity
+        mmr_score = lambda_param * relevance_score - (1 - lambda_param) * max_similarity
+
+        if mmr_score > best_score:
+            best_score = mmr_score
+            best_idx = i
+
+    return best_idx
 
 
 def get_system_prompt() -> str:
@@ -95,10 +174,12 @@ def save_system_prompt(prompt: str) -> bool:
 
 def retrieve_context(
     query: str,
-    top_k: int = 5,
+    top_k: int = 12,
     knowledge_id: str | None = None,
+    score_threshold: float = 0.3,
+    use_mmr: bool = True,
 ) -> list[dict]:
-    """Cerca i chunk più rilevanti in Qdrant.
+    """Cerca i chunk più rilevanti in Qdrant con MMR e score filtering.
 
     Se knowledge_id è fornito cerca nella collezione della knowledge,
     altrimenti usa la collezione legacy.
@@ -117,15 +198,53 @@ def retrieve_context(
     if not any(c.name == collection_name for c in collections):
         return []
 
+    # Recupera più risultati per permettere MMR e filtering
+    search_limit = max(top_k * 2, 24)  # Almeno il doppio per avere scelta
     results = client.search(
         collection_name=collection_name,
         query_vector=query_vector,
-        limit=top_k,
+        limit=search_limit,
         with_payload=True,
+        with_vectors=use_mmr,  # Serve per MMR
     )
 
+    # Filtra per score_threshold
+    filtered_results = [hit for hit in results if hit.score >= score_threshold]
+
+    if not filtered_results:
+        # Se nessun risultato supera la soglia, prendi i migliori comunque
+        filtered_results = results[:top_k] if results else []
+
+    # Applica MMR se richiesto e abbiamo abbastanza risultati
+    if use_mmr and len(filtered_results) > top_k:
+        try:
+            # Estrai vettori e score
+            vectors = []
+            scores = []
+            for hit in filtered_results:
+                if hit.vector:
+                    vectors.append(hit.vector)
+                    scores.append(hit.score)
+
+            if vectors:
+                # Applica MMR
+                selected_indices = []
+                for _ in range(min(top_k, len(vectors))):
+                    next_idx = _calculate_mmr(query_vector, vectors, scores, selected_indices)
+                    if next_idx >= 0:
+                        selected_indices.append(next_idx)
+
+                # Riordina i risultati secondo MMR
+                filtered_results = [filtered_results[i] for i in selected_indices]
+        except Exception:
+            # Fallback a selezione normale in caso di errore MMR
+            filtered_results = filtered_results[:top_k]
+    else:
+        # Prendi semplicemente i top_k
+        filtered_results = filtered_results[:top_k]
+
     contexts = []
-    for hit in results:
+    for hit in filtered_results:
         payload = hit.payload or {}
         contexts.append({
             "text": payload.get("text", ""),
@@ -183,6 +302,8 @@ Domanda dell'utente: {question}"""
     # Genera la risposta con il provider della CHAT
     if runtime_config.chat_provider == "ollama":
         return ollama_generate_chat_response(messages, model=runtime_config.chat_model)
+    elif runtime_config.chat_provider == "anthropic":
+        return anthropic_generate_chat_response(messages, model=runtime_config.chat_model)
 
     # Usa OpenAI
     client = _get_openai_client()
@@ -198,13 +319,14 @@ Domanda dell'utente: {question}"""
 
 def chat(
     question: str,
-    top_k: int = 5,
+    top_k: int = 12,
     conversation_history: list[dict] | None = None,
     knowledge_id: str | None = None,
+    score_threshold: float = 0.3,
 ) -> dict:
     """Pipeline RAG completa: retrieve + generate con supporto cronologia e knowledge."""
     # Recupera il contesto dalla knowledge specifica
-    contexts = retrieve_context(question, top_k=top_k, knowledge_id=knowledge_id)
+    contexts = retrieve_context(question, top_k=top_k, knowledge_id=knowledge_id, score_threshold=score_threshold)
 
     # Genera la risposta
     answer = generate_response(question, contexts, conversation_history)

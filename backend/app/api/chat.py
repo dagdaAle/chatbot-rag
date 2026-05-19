@@ -20,7 +20,8 @@ class MessageItem(BaseModel):
 class ChatRequest(BaseModel):
     """Richiesta chat con supporto cronologia e knowledge."""
     question: str
-    top_k: int = 5
+    top_k: int = 12
+    score_threshold: float = 0.3
     conversation_history: list[MessageItem] = []
     knowledge_id: str | None = None
     conversation_id: str | None = None  # ID conversazione per salvataggio automatico
@@ -61,6 +62,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             top_k=request.top_k,
             conversation_history=history if history else None,
             knowledge_id=request.knowledge_id,
+            score_threshold=request.score_threshold,
         )
 
         conversation_id = request.conversation_id
