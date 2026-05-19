@@ -1,4 +1,6 @@
 """Entry point FastAPI."""
+import logging
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
