@@ -1,8 +1,7 @@
 """Endpoint health e readiness."""
 from fastapi import APIRouter, HTTPException
-from qdrant_client import QdrantClient
 
-from app.config import settings
+from app.core.qdrant_client import get_client
 
 router = APIRouter()
 
@@ -17,7 +16,7 @@ async def health_detailed() -> dict:
 async def health_qdrant() -> dict:
     """Verifica connettività a Qdrant."""
     try:
-        client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+        client = get_client()
         collections = client.get_collections()
         return {
             "status": "ok",
