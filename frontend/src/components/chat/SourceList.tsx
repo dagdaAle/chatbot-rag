@@ -29,9 +29,10 @@ export function SourceList({
       <CollapsibleContent>
         <ol className="mt-2 flex flex-wrap gap-1.5">
           {sources.map((s, i) => {
-            const href = knowledgeId
+            const sourceKnowledgeId = s.knowledge_id ?? knowledgeId;
+            const href = sourceKnowledgeId
               ? getPDFViewerUrl({
-                  knowledgeId,
+                  knowledgeId: sourceKnowledgeId,
                   documentId: s.document_id,
                   pageStart: s.page_start ?? 1,
                   pageEnd: s.page_end,

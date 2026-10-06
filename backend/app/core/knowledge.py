@@ -3,13 +3,23 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from app.config import DATA_DIR
 from dataclasses import dataclass, asdict
+from app.core.storage import write_json, metadata_lock
+from functools import wraps
+
+def serialized(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with metadata_lock:
+            return function(*args, **kwargs)
+    return wrapped
 
 from app.core.qdrant_client import get_client, ensure_collection_for_kb, delete_collection_for_kb
 from app.core.documents import delete_knowledge_pdfs
 
 # File persistenza metadati knowledge
-KNOWLEDGES_FILE = Path(__file__).parent.parent.parent / "data" / "knowledges.json"
+KNOWLEDGES_FILE = DATA_DIR / "knowledges.json"
 
 
 @dataclass
@@ -36,9 +46,7 @@ def _load_knowledges() -> list[dict]:
 
 def _save_knowledges(knowledges: list[dict]) -> None:
     """Salva la lista delle knowledge nel file JSON."""
-    KNOWLEDGES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(KNOWLEDGES_FILE, "w", encoding="utf-8") as f:
-        json.dump({"knowledges": knowledges}, f, ensure_ascii=False, indent=2)
+    write_json(KNOWLEDGES_FILE, {"knowledges": knowledges})
 
 
 def get_collection_name(knowledge_id: str) -> str:
@@ -46,12 +54,14 @@ def get_collection_name(knowledge_id: str) -> str:
     return f"kb_{knowledge_id.replace('-', '_')}"
 
 
+@serialized
 def list_knowledges() -> list[Knowledge]:
     """Restituisce tutte le knowledge."""
     raw = _load_knowledges()
     return [Knowledge(**k) for k in raw]
 
 
+@serialized
 def get_knowledge(knowledge_id: str) -> Knowledge | None:
     """Restituisce una knowledge per ID."""
     raw = _load_knowledges()
@@ -61,6 +71,7 @@ def get_knowledge(knowledge_id: str) -> Knowledge | None:
     return None
 
 
+@serialized
 def create_knowledge(name: str, description: str = "") -> Knowledge:
     """Crea una nuova knowledge con la relativa collezione Qdrant."""
     kb_id = str(uuid.uuid4())
@@ -87,6 +98,7 @@ def create_knowledge(name: str, description: str = "") -> Knowledge:
     return kb
 
 
+@serialized
 def delete_knowledge(knowledge_id: str) -> bool:
     """Elimina una knowledge e la sua collezione Qdrant."""
     knowledges = _load_knowledges()
@@ -114,6 +126,7 @@ def delete_knowledge(knowledge_id: str) -> bool:
     return True
 
 
+@serialized
 def update_documents_count(knowledge_id: str, delta: int = 0, absolute: int | None = None) -> None:
     """Aggiorna il conteggio documenti di una knowledge."""
     knowledges = _load_knowledges()

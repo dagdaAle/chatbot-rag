@@ -112,6 +112,7 @@ export async function deleteDocument(knowledgeId: string, documentId: string): P
 // ============ Chat API ============
 
 export interface ChatSource {
+  knowledge_id?: string | null;
   filename: string;
   score: number;
   text: string;

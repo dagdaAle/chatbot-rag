@@ -72,7 +72,7 @@ class MessageResponse(BaseModel):
 
 
 @router.get("", response_model=ConversationListResponse)
-async def list_all_conversations() -> ConversationListResponse:
+def list_all_conversations() -> ConversationListResponse:
     """Restituisce tutte le conversazioni ordinate per updated_at DESC."""
     try:
         convs = list_conversations()
@@ -92,7 +92,7 @@ async def list_all_conversations() -> ConversationListResponse:
 
 
 @router.post("", response_model=ConversationResponse, status_code=201)
-async def create_new_conversation(body: ConversationCreate) -> ConversationResponse:
+def create_new_conversation(body: ConversationCreate) -> ConversationResponse:
     """Crea una nuova conversazione vuota."""
     if not body.title or not body.title.strip():
         raise HTTPException(status_code=400, detail="Il titolo è obbligatorio")
@@ -110,7 +110,7 @@ async def create_new_conversation(body: ConversationCreate) -> ConversationRespo
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
-async def get_single_conversation(conversation_id: str) -> ConversationDetailResponse:
+def get_single_conversation(conversation_id: str) -> ConversationDetailResponse:
     """Restituisce una conversazione con tutti i suoi messaggi."""
     conv = get_conversation(conversation_id)
     if conv is None:
@@ -138,7 +138,7 @@ async def get_single_conversation(conversation_id: str) -> ConversationDetailRes
 
 
 @router.delete("/{conversation_id}")
-async def delete_single_conversation(conversation_id: str) -> dict:
+def delete_single_conversation(conversation_id: str) -> dict:
     """Elimina una conversazione e tutti i suoi messaggi."""
     success = delete_conversation(conversation_id)
     if not success:
@@ -147,7 +147,7 @@ async def delete_single_conversation(conversation_id: str) -> dict:
 
 
 @router.post("/{conversation_id}/messages", response_model=MessageResponse, status_code=201)
-async def add_message_to_conversation(
+def add_message_to_conversation(
     conversation_id: str,
     body: MessageCreate,
 ) -> MessageResponse:

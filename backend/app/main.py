@@ -8,7 +8,19 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.api import health, documents, chat, prompt, models, knowledge, conversations
 
+from contextlib import asynccontextmanager
+from app.core.qdrant_client import get_client
+
+@asynccontextmanager
+async def lifespan(app):
+    get_client()
+    yield
+    if get_client.cache_info().currsize:
+        get_client().close()
+        get_client.cache_clear()
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Chatbot RAG API",
     description="API RAG per documenti - Qdrant + FastAPI",
     version="0.1.0",
@@ -37,7 +49,21 @@ app.include_router(models.router)
 # Le route API hanno la precedenza, tutto il resto va all'SPA.
 # Il path /app/static è popolato nella build Docker multi-stage.
 import os
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        try:
+            response = await super().get_response(path, scope)
+            if response.status_code != 404:
+                return response
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        if path.startswith("c/") or path in ("knowledge", "settings", "pdf-viewer"):
+            return await super().get_response("index.html", scope)
+        raise StarletteHTTPException(status_code=404)
 
 _static_dir = "/app/static"
 if os.path.isdir(_static_dir):
-    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="frontend")
+    app.mount("/", SPAStaticFiles(directory=_static_dir, html=True), name="frontend")

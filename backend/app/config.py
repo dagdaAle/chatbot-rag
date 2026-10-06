@@ -1,5 +1,10 @@
 """Configurazione da variabili ambiente."""
 from pydantic_settings import BaseSettings
+from pathlib import Path
+import os
+import json
+
+DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent.parent / "data")))
 
 
 class Settings(BaseSettings):
@@ -55,6 +60,16 @@ class RuntimeConfig:
         # Provider e modello per gli EMBEDDING (indipendente dalla chat)
         self.embedding_provider: str = "openai"  # Default: OpenAI per embedding
         self.embedding_model: str = settings.openai_embedding_model
+        config_path = DATA_DIR / "runtime_config.json"
+        if config_path.exists():
+            data = json.loads(config_path.read_text())
+            for key in ("chat_provider", "chat_model", "embedding_provider", "embedding_model"):
+                if key in data:
+                    setattr(self, key, data[key])
+
+    def save(self) -> None:
+        from app.core.storage import write_json
+        write_json(DATA_DIR / "runtime_config.json", {key: getattr(self, key) for key in ("chat_provider", "chat_model", "embedding_provider", "embedding_model")})
 
     def _default_chat_model(self) -> str:
         if self.chat_provider == "ollama":

@@ -1,6 +1,7 @@
 """Endpoint upload, list, download e delete documenti per Knowledge Base."""
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 from qdrant_client.models import PointStruct
 
 from app.core.documents import (
@@ -30,7 +31,10 @@ async def upload_documents(
 
     collection_name = get_collection_name(knowledge_id)
     client = get_client()
-    ensure_collection_for_kb(client, collection_name, recreate_if_wrong_size=True)
+    try:
+        ensure_collection_for_kb(client, collection_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     results = []
     errors = []
@@ -40,14 +44,17 @@ async def upload_documents(
             errors.append({"filename": file.filename or "sconosciuto", "error": "Solo file PDF sono accettati"})
             continue
 
-        content = await file.read()
+        content = await file.read(20 * 1024 * 1024 + 1)
+        if len(content) > 20 * 1024 * 1024:
+            errors.append({"filename": file.filename, "error": "PDF troppo grande: massimo 20 MB"})
+            continue
         if not content:
             errors.append({"filename": file.filename, "error": "File vuoto"})
             continue
 
         filename = file.filename or "documento.pdf"
         try:
-            doc_id, points = process_pdf_to_points(content, filename)
+            doc_id, points = await run_in_threadpool(process_pdf_to_points, content, filename)
         except Exception as e:
             errors.append({"filename": filename, "error": f"Errore elaborazione: {e}"})
             continue

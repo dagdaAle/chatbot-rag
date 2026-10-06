@@ -2,7 +2,9 @@
 import json
 import os
 from pathlib import Path
+from app.config import DATA_DIR
 import numpy as np
+from app.core.storage import write_json
 from openai import OpenAI
 
 from app.config import settings, runtime_config
@@ -14,7 +16,7 @@ from app.core.ollama_client import generate_chat_response as ollama_generate_cha
 _openai_client: OpenAI | None = None
 
 # Path per salvare il prompt di sistema
-PROMPT_FILE = Path(__file__).parent.parent.parent / "data" / "system_prompt.json"
+PROMPT_FILE = DATA_DIR / "system_prompt.json"
 
 # Prompt di default per il chatbot RAG
 DEFAULT_SYSTEM_PROMPT = """Sei un assistente AI progettato per rispondere a domande basate sui documenti caricati nel sistema.
@@ -163,9 +165,7 @@ def get_system_prompt() -> str:
 def save_system_prompt(prompt: str) -> bool:
     """Salva il prompt di sistema su file."""
     try:
-        PROMPT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(PROMPT_FILE, "w", encoding="utf-8") as f:
-            json.dump({"prompt": prompt}, f, ensure_ascii=False, indent=2)
+        write_json(PROMPT_FILE, {"prompt": prompt})
         return True
     except Exception:
         return False
@@ -211,8 +211,7 @@ def retrieve_context(
     filtered_results = [hit for hit in results if hit.score >= score_threshold]
 
     if not filtered_results:
-        # Se nessun risultato supera la soglia, prendi i migliori comunque
-        filtered_results = results[:top_k] if results else []
+        return []
 
     # Applica MMR se richiesto e abbiamo abbastanza risultati
     if use_mmr and len(filtered_results) > top_k:
@@ -264,7 +263,7 @@ def generate_response(
 ) -> str:
     """Genera una risposta usando OpenAI o Ollama con il contesto recuperato e la cronologia."""
     if not contexts:
-        return "Non ci sono documenti caricati nel sistema. Carica dei documenti PDF per poter rispondere alle tue domande."
+        return "Non ho trovato passaggi sufficientemente pertinenti nei documenti disponibili. Prova a riformulare la domanda."
 
     # Costruisci il contesto formattato dai documenti
     context_parts = []
@@ -323,15 +322,28 @@ def chat(
 ) -> dict:
     """Pipeline RAG completa: retrieve + generate con supporto cronologia e knowledge."""
     # Recupera il contesto dalla knowledge specifica
-    contexts = retrieve_context(question, top_k=top_k, knowledge_id=knowledge_id, score_threshold=score_threshold)
+    history = []
+    budget = 16000
+    for message in reversed(conversation_history or []):
+        content = message.get("content", "")
+        if len(content) > budget:
+            break
+        history.insert(0, message)
+        budget -= len(content)
+        if len(history) >= 12:
+            break
+    previous_questions = [m["content"] for m in history if m.get("role") == "user"][-2:]
+    retrieval_query = "\n".join(previous_questions + [question])
+    contexts = retrieve_context(retrieval_query, top_k=top_k, knowledge_id=knowledge_id, score_threshold=score_threshold)
 
     # Genera la risposta
-    answer = generate_response(question, contexts, conversation_history)
+    answer = generate_response(question, contexts, history)
 
     # Prepara le fonti con testo completo per il frontend
     sources = []
     for ctx in contexts:
         sources.append({
+            "knowledge_id": knowledge_id,
             "filename": ctx["filename"],
             "score": round(ctx["score"], 3),
             "text": ctx["text"],

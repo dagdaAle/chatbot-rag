@@ -5,6 +5,24 @@ Supporta due modalità:
   - local mode: Qdrant embedded, scrive su disco (ideale per Railway single-instance)
 """
 import os
+from functools import lru_cache
+from threading import RLock
+
+class LockedLocalClient:
+    """Serialize embedded storage access across FastAPI worker threads."""
+    def __init__(self, client):
+        self.client = client
+        self.lock = RLock()
+
+    def __getattr__(self, name):
+        value = getattr(self.client, name)
+        if not callable(value):
+            return value
+        def call(*args, **kwargs):
+            with self.lock:
+                return value(*args, **kwargs)
+        return call
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
@@ -14,6 +32,7 @@ from app.core.embeddings import get_current_embedding_size
 COLLECTION_NAME = "documents"
 
 
+@lru_cache(maxsize=1)
 def get_client() -> QdrantClient:
     """Restituisce il client Qdrant.
 
@@ -22,7 +41,7 @@ def get_client() -> QdrantClient:
     """
     local_path = os.getenv("QDRANT_LOCAL_PATH")
     if local_path:
-        return QdrantClient(path=local_path)
+        return LockedLocalClient(QdrantClient(path=local_path, force_disable_check_same_thread=True))
 
     return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
@@ -44,10 +63,8 @@ def ensure_collection_for_kb(
         current_size = info.config.params.vectors.size
         if current_size == vector_size:
             return
-        if recreate_if_wrong_size:
-            client.delete_collection(collection_name)
-        else:
-            return
+        raise ValueError("Il modello embedding non è compatibile con questa knowledge base. "
+                         "Crea una nuova knowledge base e reindicizza i documenti; nessun indice è stato cancellato.")
 
     client.create_collection(
         collection_name=collection_name,

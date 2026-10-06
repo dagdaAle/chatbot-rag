@@ -3,6 +3,7 @@ import io
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from app.config import DATA_DIR
 
 from pypdf import PdfReader
 
@@ -12,7 +13,7 @@ CHUNK_SIZE = 2000  # chunk più grandi per più contesto
 CHUNK_OVERLAP = 250
 
 # Directory base per salvare i PDF originali
-UPLOADS_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
+UPLOADS_DIR = DATA_DIR / "uploads"
 
 
 def get_upload_path(knowledge_id: str, document_id: str) -> Path:
@@ -87,8 +88,7 @@ def chunk_text_with_pages(
         if i < len(pages) - 1:
             full_text += "\n\n"  # separatore pagine
 
-    full_text = full_text.strip()
-    if not full_text:
+    if not full_text.strip():
         return []
 
     chunks: list[dict] = []
@@ -100,7 +100,7 @@ def chunk_text_with_pages(
         if end < len(full_text):
             # Cerca la fine di un paragrafo (doppio newline)
             paragraph_end = full_text.rfind('\n\n', start, min(end + 200, len(full_text)))
-            if paragraph_end > start:
+            if paragraph_end > start + overlap:
                 end = paragraph_end + 2
             else:
                 # Cerca la fine di una frase (. ! ?)
@@ -109,12 +109,12 @@ def chunk_text_with_pages(
                     full_text.rfind('! ', start, min(end + 100, len(full_text))),
                     full_text.rfind('? ', start, min(end + 100, len(full_text)))
                 )
-                if sentence_end > start:
+                if sentence_end > start + overlap:
                     end = sentence_end + 2
                 else:
                     # Cerca uno spazio per evitare di spezzare parole
                     space_pos = full_text.rfind(' ', start, min(end + 50, len(full_text)))
-                    if space_pos > start:
+                    if space_pos > start + overlap:
                         end = space_pos
 
         chunk_text = full_text[start:end]
@@ -127,9 +127,9 @@ def chunk_text_with_pages(
                 "page_start": page_start,
                 "page_end": page_end,
             })
-        start = end - overlap
-        if start >= len(full_text):
+        if end >= len(full_text):
             break
+        start = max(start + 1, end - overlap)
 
     return chunks
 

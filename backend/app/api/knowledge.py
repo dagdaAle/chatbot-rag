@@ -34,7 +34,7 @@ class KnowledgeListResponse(BaseModel):
 
 
 @router.get("", response_model=KnowledgeListResponse)
-async def list_all_knowledges() -> KnowledgeListResponse:
+def list_all_knowledges() -> KnowledgeListResponse:
     """Restituisce tutte le Knowledge Base."""
     try:
         kbs = list_knowledges()
@@ -54,7 +54,7 @@ async def list_all_knowledges() -> KnowledgeListResponse:
 
 
 @router.post("", response_model=KnowledgeResponse, status_code=201)
-async def create_new_knowledge(body: KnowledgeCreate) -> KnowledgeResponse:
+def create_new_knowledge(body: KnowledgeCreate) -> KnowledgeResponse:
     """Crea una nuova Knowledge Base."""
     if not body.name or not body.name.strip():
         raise HTTPException(status_code=400, detail="Il nome è obbligatorio")
@@ -72,7 +72,7 @@ async def create_new_knowledge(body: KnowledgeCreate) -> KnowledgeResponse:
 
 
 @router.get("/{knowledge_id}", response_model=KnowledgeResponse)
-async def get_single_knowledge(knowledge_id: str) -> KnowledgeResponse:
+def get_single_knowledge(knowledge_id: str) -> KnowledgeResponse:
     """Restituisce una singola Knowledge Base."""
     kb = get_knowledge(knowledge_id)
     if kb is None:
@@ -87,7 +87,7 @@ async def get_single_knowledge(knowledge_id: str) -> KnowledgeResponse:
 
 
 @router.delete("/{knowledge_id}")
-async def delete_single_knowledge(knowledge_id: str) -> dict:
+def delete_single_knowledge(knowledge_id: str) -> dict:
     """Elimina una Knowledge Base e tutti i suoi documenti."""
     success = delete_knowledge(knowledge_id)
     if not success:

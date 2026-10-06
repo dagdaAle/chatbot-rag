@@ -98,7 +98,7 @@ def _is_ollama_available() -> bool:
 # ============ Endpoint ============
 
 @router.get("/config", response_model=ProviderConfigResponse)
-async def get_config() -> ProviderConfigResponse:
+def get_config() -> ProviderConfigResponse:
     """Ottieni la configurazione corrente del provider LLM."""
     return ProviderConfigResponse(
         chat_provider=runtime_config.chat_provider,
@@ -111,7 +111,7 @@ async def get_config() -> ProviderConfigResponse:
 
 
 @router.get("/chat", response_model=ModelsListResponse)
-async def list_chat_models() -> ModelsListResponse:
+def list_chat_models() -> ModelsListResponse:
     """Lista dei modelli chat disponibili (OpenAI + Ollama)."""
     models: list[ModelInfo] = []
     
@@ -134,7 +134,7 @@ async def list_chat_models() -> ModelsListResponse:
 
 
 @router.get("/embedding", response_model=ModelsListResponse)
-async def list_embedding_models() -> ModelsListResponse:
+def list_embedding_models() -> ModelsListResponse:
     """Lista dei modelli embedding disponibili (OpenAI + Ollama)."""
     models: list[ModelInfo] = []
     
@@ -156,7 +156,7 @@ async def list_embedding_models() -> ModelsListResponse:
 
 
 @router.put("/chat", response_model=ModelSetResponse)
-async def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
+def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
     """Imposta il modello chat corrente (indipendente dagli embedding)."""
     if request.provider not in ("openai", "ollama"):
         raise HTTPException(status_code=400, detail="Provider non valido. Usa 'openai' o 'ollama'.")
@@ -167,6 +167,7 @@ async def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
     # Cambia SOLO il provider/modello della chat, NON tocca gli embedding
     runtime_config.chat_provider = request.provider
     runtime_config.chat_model = request.model_id
+    runtime_config.save()
     
     return ModelSetResponse(
         success=True,
@@ -177,7 +178,7 @@ async def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
 
 
 @router.put("/embedding", response_model=ModelSetResponse)
-async def set_embedding_model(request: ModelSetRequest) -> ModelSetResponse:
+def set_embedding_model(request: ModelSetRequest) -> ModelSetResponse:
     """Imposta il modello embedding corrente (indipendente dalla chat)."""
     if request.provider not in ("openai", "ollama"):
         raise HTTPException(status_code=400, detail="Provider non valido. Usa 'openai' o 'ollama'.")
@@ -185,9 +186,15 @@ async def set_embedding_model(request: ModelSetRequest) -> ModelSetResponse:
     if request.provider == "openai" and not settings.openai_api_key:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY non configurata.")
     
+    from app.core.qdrant_client import get_client
+    if (request.provider, request.model_id) != (runtime_config.embedding_provider, runtime_config.embedding_model):
+        client = get_client()
+        if any(client.get_collection(c.name).points_count for c in client.get_collections().collections):
+            raise HTTPException(status_code=409, detail="Sono presenti documenti indicizzati. Il cambio embedding richiede una migrazione esplicita degli indici.")
     # Cambia SOLO il provider/modello degli embedding, NON tocca la chat
     runtime_config.embedding_provider = request.provider
     runtime_config.embedding_model = request.model_id
+    runtime_config.save()
     
     return ModelSetResponse(
         success=True,

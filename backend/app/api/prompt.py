@@ -25,7 +25,7 @@ class PromptUpdateResponse(BaseModel):
 
 
 @router.get("/prompt", response_model=PromptResponse)
-async def get_prompt() -> PromptResponse:
+def get_prompt() -> PromptResponse:
     """Ottieni il prompt di sistema corrente."""
     try:
         current_prompt = get_system_prompt()
@@ -36,7 +36,7 @@ async def get_prompt() -> PromptResponse:
 
 
 @router.put("/prompt", response_model=PromptUpdateResponse)
-async def update_prompt(request: PromptUpdateRequest) -> PromptUpdateResponse:
+def update_prompt(request: PromptUpdateRequest) -> PromptUpdateResponse:
     """Aggiorna il prompt di sistema."""
     if not request.prompt or not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Il prompt non può essere vuoto")
@@ -52,7 +52,7 @@ async def update_prompt(request: PromptUpdateRequest) -> PromptUpdateResponse:
 
 
 @router.post("/prompt/reset", response_model=PromptUpdateResponse)
-async def reset_prompt() -> PromptUpdateResponse:
+def reset_prompt() -> PromptUpdateResponse:
     """Ripristina il prompt di sistema al valore di default."""
     try:
         success = save_system_prompt(DEFAULT_SYSTEM_PROMPT)
@@ -65,6 +65,6 @@ async def reset_prompt() -> PromptUpdateResponse:
 
 
 @router.get("/prompt/default", response_model=PromptResponse)
-async def get_default_prompt() -> PromptResponse:
+def get_default_prompt() -> PromptResponse:
     """Ottieni il prompt di default (senza modificarlo)."""
     return PromptResponse(prompt=DEFAULT_SYSTEM_PROMPT, is_default=True)

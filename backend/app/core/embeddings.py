@@ -32,7 +32,7 @@ def _get_openai_client() -> OpenAI:
     """Restituisce il client OpenAI (singleton)."""
     global _client
     if _client is None:
-        if not settings.openai_api_key:
+        if not (settings.openai_embedding_api_key or settings.openai_api_key):
             raise RuntimeError("OPENAI_API_KEY non configurata")
         api_key = settings.openai_embedding_api_key or settings.openai_api_key
         base_url = settings.openai_embedding_base_url  # vuoto = default OpenAI

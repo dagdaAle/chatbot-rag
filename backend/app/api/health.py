@@ -7,13 +7,13 @@ router = APIRouter()
 
 
 @router.get("")
-async def health_detailed() -> dict:
+def health_detailed() -> dict:
     """Health check dettagliato."""
     return {"status": "ok", "service": "chatbot-rag-api"}
 
 
 @router.get("/qdrant")
-async def health_qdrant() -> dict:
+def health_qdrant() -> dict:
     """Verifica connettività a Qdrant."""
     try:
         client = get_client()

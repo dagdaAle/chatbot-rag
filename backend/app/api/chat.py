@@ -1,5 +1,5 @@
 """Endpoint chat RAG."""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
 
 from app.core.chat import chat as rag_chat
@@ -19,15 +19,16 @@ class MessageItem(BaseModel):
 
 class ChatRequest(BaseModel):
     """Richiesta chat con supporto cronologia e knowledge."""
-    question: str
-    top_k: int = 12
-    score_threshold: float = 0.3
-    conversation_history: list[MessageItem] = []
+    question: str = Field(min_length=1, max_length=8000)
+    top_k: int = Field(default=12, ge=1, le=24)
+    score_threshold: float = Field(default=0.3, ge=0, le=1)
+    conversation_history: list[MessageItem] = Field(default_factory=list, max_length=200)
     knowledge_id: str | None = None
     conversation_id: str | None = None  # ID conversazione per salvataggio automatico
 
 
 class SourceItem(BaseModel):
+    knowledge_id: str | None = None
     """Fonte documento con testo del chunk e riferimento pagina."""
     filename: str
     score: float
@@ -47,7 +48,7 @@ class ChatResponse(BaseModel):
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+def chat(request: ChatRequest) -> ChatResponse:
     """Invia una domanda al chatbot RAG con supporto cronologia e knowledge."""
     if not request.question or not request.question.strip():
         raise HTTPException(status_code=400, detail="La domanda non può essere vuota")
