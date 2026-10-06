@@ -20,4 +20,12 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Componenti shadcn/prompt-kit copiati così come sono: esportano anche varianti e hook.
+    files: ['src/components/ui/**', 'src/hooks/**'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
 ])
