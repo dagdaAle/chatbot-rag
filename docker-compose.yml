@@ -23,8 +23,11 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_CHAT_MODEL=${DEEPSEEK_CHAT_MODEL:-deepseek-flash}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Ollama gira sul Mac Mini host, usa host.docker.internal per raggiungerlo da Docker
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-llama3.2}

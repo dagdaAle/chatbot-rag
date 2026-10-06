@@ -17,7 +17,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
     
     # Provider LLM: "openai" o "ollama"
-    llm_provider: str = "openai"
+    llm_provider: str = "deepseek"
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_chat_model: str = "deepseek-flash"
+    embedding_provider: str = "ollama"
     openai_api_key: str = ""
     openai_base_url: str = ""  # Es: https://api.deepseek.com (vuoto = default OpenAI)
     openai_chat_model: str = "gpt-4o-mini"  # Default per chat
@@ -46,7 +50,7 @@ settings = Settings()
 
 
 class RuntimeConfig:
-    """Configurazione runtime modificabile dall'utente (non persiste al riavvio).
+    """Configurazione runtime modificabile e persistita in DATA_DIR.
     
     Chat e embedding hanno provider INDIPENDENTI:
     - Puoi usare Ollama per la chat e OpenAI per gli embedding (o viceversa).
@@ -58,8 +62,8 @@ class RuntimeConfig:
         self.chat_model: str = self._default_chat_model()
         
         # Provider e modello per gli EMBEDDING (indipendente dalla chat)
-        self.embedding_provider: str = "openai"  # Default: OpenAI per embedding
-        self.embedding_model: str = settings.openai_embedding_model
+        self.embedding_provider: str = settings.embedding_provider
+        self.embedding_model: str = (settings.ollama_embedding_model if self.embedding_provider == "ollama" else settings.openai_embedding_model)
         config_path = DATA_DIR / "runtime_config.json"
         if config_path.exists():
             data = json.loads(config_path.read_text())
@@ -74,6 +78,8 @@ class RuntimeConfig:
     def _default_chat_model(self) -> str:
         if self.chat_provider == "ollama":
             return settings.ollama_chat_model
+        if self.chat_provider == "deepseek":
+            return settings.deepseek_chat_model
         return settings.openai_chat_model
 
 

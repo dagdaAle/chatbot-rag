@@ -46,9 +46,15 @@ class ProviderConfigResponse(BaseModel):
     embedding_model: str
     ollama_available: bool
     openai_available: bool
+    deepseek_available: bool
 
 
 # ============ Modelli OpenAI predefiniti ============
+
+DEEPSEEK_CHAT_MODELS = [
+    ModelInfo(id="deepseek-flash", name="DeepSeek Flash", provider="deepseek"),
+    ModelInfo(id="deepseek-v4-pro", name="DeepSeek V4 Pro", provider="deepseek"),
+]
 
 OPENAI_CHAT_MODELS = [
     ModelInfo(id="gpt-4o-mini", name="GPT-4o Mini", provider="openai"),
@@ -107,6 +113,7 @@ def get_config() -> ProviderConfigResponse:
         embedding_model=runtime_config.embedding_model,
         ollama_available=_is_ollama_available(),
         openai_available=bool(settings.openai_api_key),
+        deepseek_available=bool(settings.deepseek_api_key),
     )
 
 
@@ -118,12 +125,14 @@ def list_chat_models() -> ModelsListResponse:
     # Aggiungi modelli OpenAI se la chiave è configurata
     if settings.openai_api_key:
         models.extend(OPENAI_CHAT_MODELS)
+    if settings.deepseek_api_key:
+        models.extend(DEEPSEEK_CHAT_MODELS)
     
     # Aggiungi modelli Ollama se disponibile
     ollama_models = _fetch_ollama_models()
     # Filtra solo modelli non-embedding per la chat
     for m in ollama_models:
-        if "embed" not in m.id.lower():
+        if not any(word in m.id.lower() for word in ("embed", "bge-m3", "all-minilm")):
             models.append(m)
     
     return ModelsListResponse(
@@ -145,7 +154,7 @@ def list_embedding_models() -> ModelsListResponse:
     # Aggiungi modelli Ollama per embedding
     ollama_models = _fetch_ollama_models()
     for m in ollama_models:
-        if "embed" in m.id.lower() or "nomic" in m.id.lower():
+        if any(word in m.id.lower() for word in ("embed", "nomic", "bge-m3", "all-minilm")):
             models.append(m)
     
     return ModelsListResponse(
@@ -158,8 +167,13 @@ def list_embedding_models() -> ModelsListResponse:
 @router.put("/chat", response_model=ModelSetResponse)
 def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
     """Imposta il modello chat corrente (indipendente dagli embedding)."""
-    if request.provider not in ("openai", "ollama"):
-        raise HTTPException(status_code=400, detail="Provider non valido. Usa 'openai' o 'ollama'.")
+    if request.provider not in ("openai", "ollama", "deepseek"):
+        raise HTTPException(status_code=400, detail="Provider chat non valido.")
+    if request.provider == "deepseek":
+        if not settings.deepseek_api_key:
+            raise HTTPException(status_code=400, detail="DEEPSEEK_API_KEY non configurata.")
+        if request.model_id not in {m.id for m in DEEPSEEK_CHAT_MODELS}:
+            raise HTTPException(status_code=400, detail="Modello DeepSeek non valido.")
     
     if request.provider == "openai" and not settings.openai_api_key:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY non configurata.")

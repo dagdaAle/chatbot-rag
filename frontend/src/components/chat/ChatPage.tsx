@@ -213,7 +213,7 @@ export function ChatPage() {
             <SelectContent>
               {providers.map((p) => (
                 <SelectGroup key={p}>
-                  <SelectLabel>{p === 'ollama' ? 'Locale (Ollama)' : 'OpenAI'}</SelectLabel>
+                  <SelectLabel>{p === 'ollama' ? 'Locale (Ollama)' : p === 'deepseek' ? 'DeepSeek' : 'OpenAI'}</SelectLabel>
                   {models
                     .filter((m) => m.provider === p)
                     .map((m) => (

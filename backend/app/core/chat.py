@@ -14,6 +14,15 @@ from app.core.knowledge import get_collection_name, get_knowledge
 from app.core.ollama_client import generate_chat_response as ollama_generate_chat_response
 
 _openai_client: OpenAI | None = None
+_deepseek_client: OpenAI | None = None
+
+def _get_deepseek_client() -> OpenAI:
+    global _deepseek_client
+    if _deepseek_client is None:
+        if not settings.deepseek_api_key:
+            raise RuntimeError("DEEPSEEK_API_KEY non configurata")
+        _deepseek_client = OpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url, timeout=120)
+    return _deepseek_client
 
 # Path per salvare il prompt di sistema
 PROMPT_FILE = DATA_DIR / "system_prompt.json"
@@ -302,8 +311,10 @@ Domanda dell'utente: {question}"""
         return ollama_generate_chat_response(messages, model=runtime_config.chat_model)
 
     # Usa OpenAI
-    client = _get_openai_client()
+    client = _get_deepseek_client() if runtime_config.chat_provider == "deepseek" else _get_openai_client()
+    provider_options = {"extra_body": {"thinking": {"type": "disabled"}}} if runtime_config.chat_provider == "deepseek" else {}
     response = client.chat.completions.create(
+        **provider_options,
         model=runtime_config.chat_model,
         messages=messages,
         temperature=0.3,

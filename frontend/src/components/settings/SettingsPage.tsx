@@ -97,9 +97,10 @@ function ModelsSettings() {
           <Badge variant={config?.ollama_available ? 'default' : 'outline'}>
             Ollama {config?.ollama_available ? 'attivo' : 'non raggiungibile'}
           </Badge>
-          <Badge variant={config?.openai_available ? 'default' : 'outline'}>
-            OpenAI {config?.openai_available ? 'configurato' : 'non configurato'}
+          <Badge variant={config?.deepseek_available ? 'default' : 'outline'}>
+            DeepSeek {config?.deepseek_available ? 'configurato' : 'non configurato'}
           </Badge>
+          {config?.openai_available && <Badge>OpenAI configurato</Badge>}
           {config && <Badge variant="secondary">Chat: {config.chat_model}</Badge>}
         </CardContent>
       </Card>

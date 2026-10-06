@@ -1,5 +1,6 @@
 import os
 import tempfile
+os.environ['EMBEDDING_PROVIDER'] = 'openai'
 os.environ['DATA_DIR'] = tempfile.mkdtemp()
 os.environ['QDRANT_LOCAL_PATH'] = tempfile.mkdtemp()
 import pytest
@@ -99,3 +100,36 @@ def test_runtime_configuration_survives_restart():
     finally:
         runtime_config.chat_model = original
         runtime_config.save()
+
+
+def test_deepseek_uses_dedicated_client(monkeypatch):
+    from types import SimpleNamespace
+    captured = {}
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='ok'))])
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(chat, '_get_deepseek_client', lambda: fake)
+    monkeypatch.setattr(chat, '_get_openai_client', lambda: pytest.fail('OpenAI must not be called'))
+    monkeypatch.setattr(runtime_config, 'chat_provider', 'deepseek')
+    monkeypatch.setattr(runtime_config, 'chat_model', 'deepseek-flash')
+    assert chat.generate_response('test', [{'filename':'a.pdf','text':'test'}]) == 'ok'
+    assert captured['model'] == 'deepseek-flash'
+    assert captured['extra_body']['thinking']['type'] == 'disabled'
+
+
+def test_ollama_embeddings_work_without_openai_key(monkeypatch):
+    from app.core import embeddings
+    from app.config import settings
+    monkeypatch.setattr(settings, 'openai_api_key', '')
+    monkeypatch.setattr(runtime_config, 'embedding_provider', 'ollama')
+    monkeypatch.setattr(runtime_config, 'embedding_model', 'nomic-embed-text')
+    monkeypatch.setattr(embeddings, 'ollama_generate_embedding', lambda text, model: [0.5] * 768)
+    assert len(embeddings.get_query_embedding('test')) == 768
+
+
+def test_bge_model_is_embedding_not_chat(monkeypatch):
+    from app.api import models
+    monkeypatch.setattr(models, '_fetch_ollama_models', lambda: [models.ModelInfo(id='bge-m3:latest',name='bge-m3',provider='ollama')])
+    assert not any(m.id == 'bge-m3:latest' for m in models.list_chat_models().models)
+    assert any(m.id == 'bge-m3:latest' for m in models.list_embedding_models().models)

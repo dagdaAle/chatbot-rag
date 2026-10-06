@@ -109,3 +109,43 @@ Test backend (virtualenv, dipendenze in `backend/requirements.txt` + pytest/http
 ```bash
 PYTHONPATH=backend python -m pytest backend/tests
 ```
+
+## DeepSeek + Ollama sul Mac mini
+
+Configurazione senza servizi OpenAI (il pacchetto Python `openai` resta soltanto
+come client compatibile con l'API DeepSeek):
+
+```env
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=<impostare come segreto in Coolify>
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_CHAT_MODEL=deepseek-flash
+EMBEDDING_PROVIDER=ollama
+OLLAMA_BASE_URL=http://192.168.1.22:11434
+OLLAMA_CHAT_MODEL=gpt-oss:20b
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+DATA_DIR=/data
+QDRANT_LOCAL_PATH=/data/qdrant
+```
+
+Rimuovere `OPENAI_API_KEY`, `OPENAI_EMBEDDING_API_KEY` e gli override OpenAI
+nel deploy dopo aver verificato eventuali indici esistenti. Se esiste
+`runtime_config.json`, la configurazione salvata ha precedenza sulle variabili:
+aggiornare anche quella tramite le API impostazioni, rispettando il blocco del
+cambio embedding quando gli indici contengono documenti.
+
+Prima del primo deploy con `DATA_DIR=/data`, salvare e trasferire gli eventuali
+file esistenti da `/app/data` al volume persistente. Non sovrascrivere dati già
+presenti. Verificare dal container sia `/api/tags` sia una chiamata `/api/embed`
+con `nomic-embed-text`; dalla sola macchina Mac mini il test non prova la LAN.
+
+Sul Mac mini, Terminale locale con privilegi amministratore:
+
+```bash
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /opt/homebrew/opt/ollama/bin/ollama
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /opt/homebrew/opt/ollama/bin/ollama
+sudo pmset -a sleep 0 disksleep 0 powernap 0
+```
+
+Questa configurazione usa la LAN. Non pubblicare l'API Ollama direttamente su
+Internet. Dopo gli aggiornamenti di Ollama ricontrollare raggiungibilità e regole.

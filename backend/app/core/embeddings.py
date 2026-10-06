@@ -14,6 +14,8 @@ EMBEDDING_SIZES = {
     "mxbai-embed-large": 1024,
     "all-minilm": 384,
     "snowflake-arctic-embed": 1024,
+    "bge-m3": 1024,
+    "bge-m3:latest": 1024,
 }
 
 # Dimensione di default

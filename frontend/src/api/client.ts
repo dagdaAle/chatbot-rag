@@ -358,11 +358,13 @@ export interface ModelSetResponse {
 }
 
 export interface ProviderConfigResponse {
-  llm_provider: string;
+  chat_provider: string;
+  embedding_provider: string;
   chat_model: string;
   embedding_model: string;
   ollama_available: boolean;
   openai_available: boolean;
+  deepseek_available: boolean;
 }
 
 export async function fetchProviderConfig(): Promise<ProviderConfigResponse> {
