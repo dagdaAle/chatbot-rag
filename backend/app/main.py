@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.api import health, documents, chat, prompt, models, knowledge, conversations
+from app.api import health, documents, chat, prompt, models, knowledge, conversations, admin
 
 from contextlib import asynccontextmanager
 from app.core.qdrant_client import get_client
@@ -36,6 +36,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin.router, dependencies=[Depends(current_user)])
+app.include_router(admin.account_router, dependencies=[Depends(current_user)])
+
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(knowledge.router, dependencies=[Depends(current_user)])
 app.include_router(documents.router, dependencies=[Depends(current_user)])
@@ -61,7 +64,7 @@ class SPAStaticFiles(StaticFiles):
         except StarletteHTTPException as exc:
             if exc.status_code != 404:
                 raise
-        if path.startswith("c/") or path in ("knowledge", "settings", "pdf-viewer"):
+        if path.startswith("c/") or path in ("knowledge", "settings", "pdf-viewer", "admin", "account"):
             return await super().get_response("index.html", scope)
         raise StarletteHTTPException(status_code=404)
 

@@ -14,6 +14,20 @@ from app.main import app
 
 @pytest.fixture
 def signing(monkeypatch):
+    from app.core import supabase, admin
+    from app.config import runtime_config
+    original_rest = supabase.rest
+    def application_rest(method, resource, **kwargs):
+        if resource == 'app_profiles':
+            user = request_user.get()
+            return [{'id':user.id,'role':'admin' if user.is_admin else 'user','active':True,'must_change_password':False,'session_valid_after':'1970-01-01T00:00:00+00:00'}]
+        if resource == 'rpc/chatbot_kb_access':
+            return request_user.get().is_admin
+        if resource == 'app_models':
+            return [{'key':'ollama:test','provider':'ollama','model_id':'test','enabled':True,'kind':'chat'}]
+        return original_rest(method,resource,**kwargs)
+    monkeypatch.setattr(supabase,'rest',application_rest)
+    monkeypatch.setattr(admin,'privileged',lambda *args,**kwargs: str(uuid4()) if 'reserve_request' in args[1] else [])
     private = ec.generate_private_key(ec.SECP256R1())
     monkeypatch.setattr(auth, 'jwks_client', lambda: SimpleNamespace(get_signing_key_from_jwt=lambda token: SimpleNamespace(key=private.public_key())))
     def token(**overrides):

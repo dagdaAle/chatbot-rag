@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     supabase_url: str = "https://supabase.intecha.dev"
     supabase_publishable_key: str = "sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV"
     supabase_jwt_issuer: str = ""
+    supabase_admin_key: str = ""  # Server-only Auth Admin + accounting; never VITE_
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000

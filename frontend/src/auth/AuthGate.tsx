@@ -5,6 +5,9 @@ import { supabase } from './supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { api, type Profile } from '@/api/admin';
+import { PasswordForm } from '@/components/settings/AccountPage';
+import { Toaster } from '@/components/ui/sonner';
 import intechaLogo from '@/assets/intecha-logo-white.svg';
 
 function Login() {
@@ -59,5 +62,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, []);
   if (loading) return <main className="flex min-h-screen items-center justify-center" role="status">Caricamento sessione…</main>;
   if (!session) return <Login />;
-  return <AuthContext.Provider key={session.user.id} value={session.user}>{children}</AuthContext.Provider>;
+  return <ProfileGate key={session.user.id} session={session}>{children}</ProfileGate>;
+}
+
+function ProfileGate({ session, children }: { session: Session; children: ReactNode }) {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api<Profile>('account/me').then(p => { if (alive) { setProfile(p); setError(''); } }).catch(err => { if (alive) { setProfile(null); setError(err.message); } });
+    load(); const timer = setInterval(load, 60000); window.addEventListener('focus', load);
+    return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', load); };
+  }, [retry]);
+  if (!profile) return <main className="space-y-4 p-8"><p role="status">{error || 'Verifica account…'}</p>{error && <Button onClick={() => setRetry(v => v + 1)}>Riprova</Button>}<Button variant="outline" onClick={() => supabase.auth.signOut({ scope: 'local' })}>Esci</Button></main>;
+  const user = { ...session.user, app_metadata: { ...session.user.app_metadata, chatbot_role: profile.role } };
+  return <AuthContext.Provider value={user}>{profile.must_change_password ? <main className="mx-auto max-w-lg space-y-6 p-8"><h1 className="text-xl font-semibold">Imposta la tua password personale</h1><PasswordForm onChanged={() => setRetry(v => v + 1)} /><Button variant="outline" onClick={() => supabase.auth.signOut({scope:'local'})}>Esci</Button><Toaster /></main> : children}</AuthContext.Provider>;
 }

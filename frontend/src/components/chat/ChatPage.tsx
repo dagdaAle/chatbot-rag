@@ -28,7 +28,6 @@ import {
   fetchChatModels,
   fetchConversation,
   sendChatMessage,
-  setChatModel,
   type ModelInfo,
 } from '@/api/client';
 import { useApp } from '@/context/AppContext';
@@ -65,7 +64,8 @@ export function ChatPage() {
     fetchChatModels()
       .then((data) => {
         setModels(data.models);
-        setCurrentModel(data.current);
+        const saved = sessionStorage.getItem('chatbot-model');
+        setCurrentModel(saved && data.models.some(m => `${m.provider}:${m.id}` === saved) ? saved : data.models.some(m => m.id === data.current && m.provider === data.provider) ? `${data.provider}:${data.current}` : data.models[0] ? `${data.models[0].provider}:${data.models[0].id}` : '');
       })
       .catch(() => setModels([]));
   }, []);
@@ -85,7 +85,6 @@ export function ChatPage() {
     if (routeId === loadedIdRef.current) return;
 
     let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch della conversazione
     setLoadingConversation(true);
     fetchConversation(routeId)
       .then((conv) => {
@@ -113,16 +112,9 @@ export function ChatPage() {
     };
   }, [routeId, navigate, setSelectedKnowledgeId]);
 
-  const changeModel = async (value: string) => {
-    const model = models.find((m) => `${m.provider}:${m.id}` === value);
-    if (!model) return;
-    try {
-      await setChatModel(model.id, model.provider);
-      setCurrentModel(model.id);
-      toast.success(`Modello: ${model.name}`);
-    } catch (err) {
-      toast.error(errorMessage(err, 'Cambio modello non riuscito'));
-    }
+  const changeModel = (value: string) => {
+    setCurrentModel(value);
+    sessionStorage.setItem('chatbot-model', value);
   };
 
   const send = async (text?: string) => {
@@ -146,6 +138,7 @@ export function ChatPage() {
         5,
         selectedKnowledgeId ?? undefined,
         routeId ?? undefined,
+        currentModel || undefined,
       );
       if (token.aborted) return;
       setMessages((prev) => [
@@ -177,7 +170,7 @@ export function ChatPage() {
     setSending(false);
   };
 
-  const currentModelValue = models.find((m) => m.id === currentModel);
+  const currentModelValue = models.find((m) => `${m.provider}:${m.id}` === currentModel);
   const providers = [...new Set(models.map((m) => m.provider))];
   const isEmpty = messages.length === 0 && !loadingConversation;
   const noKnowledge = knowledges.length === 0;
@@ -208,7 +201,7 @@ export function ChatPage() {
           <Select
             value={currentModelValue ? `${currentModelValue.provider}:${currentModelValue.id}` : undefined}
             onValueChange={changeModel}
-            disabled={!isAdmin}
+            disabled={sending}
           >
             <SelectTrigger size="sm" className="max-w-52" aria-label="Modello">
               <Cpu className="text-muted-foreground" />

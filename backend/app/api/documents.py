@@ -1,6 +1,6 @@
 """Endpoint upload, list, download e delete documenti per Knowledge Base."""
 from fastapi import Depends
-from app.auth import require_admin
+from app.auth import require_kb_manager
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
@@ -19,7 +19,7 @@ from app.core.supabase import rest, identifier
 router = APIRouter(prefix="/api/knowledge", tags=["documents"])
 
 
-@router.post("/{knowledge_id}/documents/upload", dependencies=[Depends(require_admin)])
+@router.post("/{knowledge_id}/documents/upload", dependencies=[Depends(require_kb_manager)])
 async def upload_documents(
     knowledge_id: str,
     files: list[UploadFile] = File(...),
@@ -57,7 +57,12 @@ async def upload_documents(
 
         filename = file.filename or "documento.pdf"
         try:
-            doc_id, points = await run_in_threadpool(process_pdf_to_points, content, filename)
+            from app.core.usage import operation_context
+            marker = operation_context.set({'knowledge_id': knowledge_id})
+            try:
+                doc_id, points = await run_in_threadpool(process_pdf_to_points, content, filename)
+            finally:
+                operation_context.reset(marker)
         except Exception as e:
             errors.append({"filename": filename, "error": f"Errore elaborazione: {e}"})
             continue
@@ -74,7 +79,7 @@ async def upload_documents(
                 await run_in_threadpool(client.upsert, collection_name=collection_name, points=batch)
             await run_in_threadpool(rest, 'POST', 'documents', body={
                 'document_id': doc_id, 'knowledge_id': identifier(knowledge_id),
-                'filename': filename, 'chunks_count': len(points)})
+                'filename': filename, 'chunks_count': len(points), 'size_bytes': len(content)})
         except Exception:
             from qdrant_client import models
             await run_in_threadpool(client.delete, collection_name=collection_name,
@@ -133,7 +138,7 @@ def download_document_file(knowledge_id: str, document_id: str) -> FileResponse:
     )
 
 
-@router.delete("/{knowledge_id}/documents/{document_id}", dependencies=[Depends(require_admin)])
+@router.delete("/{knowledge_id}/documents/{document_id}", dependencies=[Depends(require_kb_manager)])
 def delete_document(knowledge_id: str, document_id: str) -> dict:
     """Elimina un documento, i suoi chunk da Qdrant e il PDF dal disco."""
     kb = get_knowledge(knowledge_id)

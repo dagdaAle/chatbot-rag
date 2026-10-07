@@ -1,13 +1,13 @@
 """Supabase ES256 authentication. No shared secrets or privileged keys."""
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
 import jwt
 import requests
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 from app.config import settings
@@ -18,6 +18,8 @@ class User:
     id: str
     token: str
     is_admin: bool
+    app_role: str = "user"
+    issued_at: int = 0
 
 
 request_user: ContextVar[User] = ContextVar('request_user')
@@ -57,19 +59,31 @@ def verify_token(token: str) -> User:
         user_id = str(UUID(claims['sub']))
         if claims.get('role') != 'authenticated':
             raise ValueError('Session role required')
-        return User(user_id, token, claims.get('app_metadata', {}).get('chatbot_role') == 'admin')
+        return User(user_id, token, claims.get('app_metadata', {}).get('chatbot_role') == 'admin', issued_at=int(claims['iat']))
     except (jwt.PyJWKClientConnectionError,) as exc:
         raise HTTPException(503, 'Servizio di autenticazione temporaneamente non disponibile') from exc
     except (jwt.PyJWTError, ValueError, KeyError, TypeError) as exc:
         raise HTTPException(401, 'Sessione non valida o scaduta', headers={'WWW-Authenticate': 'Bearer'}) from exc
 
 
-async def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+async def current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if not credentials or credentials.scheme.lower() != 'bearer':
         raise HTTPException(401, 'Accedi per continuare', headers={'WWW-Authenticate': 'Bearer'})
     user = await run_in_threadpool(verify_token, credentials.credentials)
     marker = request_user.set(user)
     try:
+        from app.core.supabase import rest
+        profiles = await run_in_threadpool(rest, 'GET', 'app_profiles', params={'id': f'eq.{user.id}'})
+        if not profiles or not profiles[0]['active']:
+            raise HTTPException(403, 'Account sospeso o non abilitato')
+        profile = profiles[0]
+        from datetime import datetime
+        if user.issued_at < datetime.fromisoformat(profile['session_valid_after'].replace('Z','+00:00')).timestamp():
+            raise HTTPException(401, 'Sessione revocata. Accedi nuovamente.')
+        if profile['must_change_password'] and request.url.path not in ('/api/account/me','/api/account/password'):
+            raise HTTPException(403, 'Devi cambiare la password prima di continuare')
+        user = replace(user, is_admin=profile['role']=='admin', app_role=profile['role'])
+        request_user.set(user)
         yield user
     finally:
         request_user.reset(marker)
@@ -78,4 +92,11 @@ async def current_user(credentials: HTTPAuthorizationCredentials | None = Depend
 def require_admin(user: User = Depends(current_user)):
     if not user.is_admin:
         raise HTTPException(403, 'Operazione riservata agli amministratori')
+    return user
+
+
+def require_kb_manager(knowledge_id: str, user: User = Depends(current_user)):
+    from app.core.supabase import rest, identifier
+    if not rest('POST', 'rpc/chatbot_kb_access', body={'kb': identifier(knowledge_id), 'manage': True}):
+        raise HTTPException(403, 'Gestione della knowledge base non consentita')
     return user

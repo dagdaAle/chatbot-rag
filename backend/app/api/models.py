@@ -122,26 +122,11 @@ def get_config() -> ProviderConfigResponse:
 @router.get("/chat", response_model=ModelsListResponse)
 def list_chat_models() -> ModelsListResponse:
     """Lista dei modelli chat disponibili (OpenAI + Ollama)."""
-    models: list[ModelInfo] = []
-    
-    # Aggiungi modelli OpenAI se la chiave è configurata
-    if settings.openai_api_key:
-        models.extend(OPENAI_CHAT_MODELS)
-    if settings.deepseek_api_key:
-        models.extend(DEEPSEEK_CHAT_MODELS)
-    
-    # Aggiungi modelli Ollama se disponibile
-    ollama_models = _fetch_ollama_models()
-    # Filtra solo modelli non-embedding per la chat
-    for m in ollama_models:
-        if not any(word in m.id.lower() for word in ("embed", "bge-m3", "all-minilm")):
-            models.append(m)
-    
-    return ModelsListResponse(
-        models=models,
-        current=runtime_config.chat_model,
-        provider=runtime_config.chat_provider,
-    )
+    from app.core.supabase import rest
+    rows = rest('GET', 'app_models', params={'enabled':'eq.true', 'kind':'eq.chat', 'order':'name.asc'})
+    models = [ModelInfo(id=r['model_id'],name=r['name'],provider=r['provider']) for r in rows
+              if r['provider']=='ollama' or (r['provider']=='openai' and settings.openai_api_key) or (r['provider']=='deepseek' and settings.deepseek_api_key)]
+    return ModelsListResponse(models=models,current=runtime_config.chat_model,provider=runtime_config.chat_provider)
 
 
 @router.get("/embedding", response_model=ModelsListResponse)

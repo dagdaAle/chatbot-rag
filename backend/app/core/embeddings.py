@@ -42,51 +42,33 @@ def _get_openai_client() -> OpenAI:
     return _client
 
 
-def get_embedding(text: str) -> list[float]:
-    """Genera embedding per un testo usando OpenAI o Ollama."""
-    if runtime_config.embedding_provider == "ollama":
-        return ollama_generate_embedding(text, model=runtime_config.embedding_model)
-    
-    # Usa OpenAI
-    client = _get_openai_client()
-    # Tronca testo troppo lungo (limite circa 8k token)
-    text = text[:8000] if len(text) > 8000 else text
-    response = client.embeddings.create(
-        model=runtime_config.embedding_model,
-        input=text,
-    )
-    return response.data[0].embedding
+def get_embedding(text: str, operation: str = 'query_embedding') -> list[float]:
+    from app.core.usage import measure
+    provider, model = runtime_config.embedding_provider, runtime_config.embedding_model
+    with measure(provider, model, operation) as usage:
+        if provider == 'ollama':
+            return ollama_generate_embedding(text, model=model, usage=usage)
+        response = _get_openai_client().embeddings.create(model=model, input=text[:8000])
+        if response.usage:
+            usage.update(input_tokens=response.usage.total_tokens, output_tokens=0)
+        return response.data[0].embedding
 
 
 def get_query_embedding(query: str) -> list[float]:
-    """Genera embedding per una query usando OpenAI o Ollama."""
     return get_embedding(query)
 
 
 def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
-    """Genera embedding per più testi in batch."""
-    if runtime_config.embedding_provider == "ollama":
-        # Ollama non supporta batch nativamente, processiamo sequenzialmente
-        results = []
-        for text in texts:
-            results.append(ollama_generate_embedding(text, model=runtime_config.embedding_model))
-        return results
-    
-    # Usa OpenAI con batch
-    client = _get_openai_client()
-    # OpenAI supporta batch di max 2048 input
+    from app.core.usage import measure
+    provider, model = runtime_config.embedding_provider, runtime_config.embedding_model
+    if provider == 'ollama':
+        return [get_embedding(text, 'document_embedding') for text in texts]
     results = []
-    batch_size = 100
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
-        batch = [t[:8000] if len(t) > 8000 else t for t in batch]
-        response = client.embeddings.create(
-            model=runtime_config.embedding_model,
-            input=batch,
-        )
-        # Mantieni l'ordine originale
-        batch_embeddings = [None] * len(batch)
-        for item in response.data:
-            batch_embeddings[item.index] = item.embedding
-        results.extend(batch_embeddings)
+    for start in range(0, len(texts), 100):
+        batch = [text[:8000] for text in texts[start:start+100]]
+        with measure(provider, model, 'document_embedding') as usage:
+            response = _get_openai_client().embeddings.create(model=model,input=batch)
+            if response.usage:
+                usage.update(input_tokens=response.usage.total_tokens,output_tokens=0)
+            results.extend(item.embedding for item in sorted(response.data,key=lambda item:item.index))
     return results

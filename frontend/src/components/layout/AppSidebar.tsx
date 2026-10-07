@@ -1,3 +1,5 @@
+import { useAuthUser } from '@/auth/AuthContext';
+import { Shield, UserRound } from 'lucide-react';
 import { supabase } from '@/auth/supabase';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -53,6 +55,7 @@ import { errorMessage, groupByRecency } from '@/lib/format';
 const NAV = [
   { to: '/knowledge', label: 'Knowledge base', icon: BookOpen },
   { to: '/settings', label: 'Impostazioni', icon: Settings },
+  { to: '/account', label: 'Il mio account', icon: UserRound },
 ];
 
 const THEMES = [
@@ -62,6 +65,7 @@ const THEMES = [
 ];
 
 export function AppSidebar() {
+  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
   const { conversations, conversationsLoading, reloadConversations } = useApp();
   const { id: currentId } = useParams();
   const location = useLocation();
@@ -106,7 +110,7 @@ export function AppSidebar() {
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {[...NAV, ...(isAdmin ? [{ to: '/admin', label: 'Amministrazione', icon: Shield }] : [])].map(({ to, label, icon: Icon }) => (
             <SidebarMenuItem key={to}>
               <SidebarMenuButton asChild isActive={location.pathname.startsWith(to)}>
                 <Link to={to}>

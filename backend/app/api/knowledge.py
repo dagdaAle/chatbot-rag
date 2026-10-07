@@ -27,6 +27,7 @@ class KnowledgeResponse(BaseModel):
     description: str
     created_at: str
     documents_count: int
+    can_manage: bool = False
 
 
 class KnowledgeListResponse(BaseModel):
@@ -47,6 +48,7 @@ def list_all_knowledges() -> KnowledgeListResponse:
                 description=kb.description,
                 created_at=kb.created_at,
                 documents_count=kb.documents_count,
+                can_manage=kb.can_manage,
             )
             for kb in kbs
         ]
@@ -70,6 +72,7 @@ def create_new_knowledge(body: KnowledgeCreate) -> KnowledgeResponse:
             description=kb.description,
             created_at=kb.created_at,
             documents_count=kb.documents_count,
+                can_manage=kb.can_manage,
         )
     except HTTPException:
         raise
@@ -89,6 +92,7 @@ def get_single_knowledge(knowledge_id: str) -> KnowledgeResponse:
         description=kb.description,
         created_at=kb.created_at,
         documents_count=kb.documents_count,
+                can_manage=kb.can_manage,
     )
 
 

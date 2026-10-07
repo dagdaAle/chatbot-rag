@@ -7,6 +7,8 @@ import { AppProvider } from '@/context/AppContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ChatPage } from '@/components/chat/ChatPage';
 import { KnowledgePage } from '@/components/knowledge/KnowledgePage';
+import { AdminPage } from '@/components/admin/AdminPage';
+import { AccountPage } from '@/components/settings/AccountPage';
 import { SettingsPage } from '@/components/settings/SettingsPage';
 
 // react-pdf pesa: lo carichiamo solo quando si apre una fonte.
@@ -23,6 +25,8 @@ function App() {
               <Route path="c/:id" element={<ChatPage />} />
               <Route path="knowledge" element={<KnowledgePage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="admin" element={<AdminPage />} />
+              <Route path="account" element={<AccountPage />} />
             </Route>
             <Route
               path="/pdf-viewer"

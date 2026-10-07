@@ -1,9 +1,13 @@
 # Attivazione Supabase
 
 Il codice usa Auth Supabase ES256, database applicativo via PostgREST con JWT
-utente e RLS, Qdrant per vettori/chunk, PDF sul volume DATA_DIR. Nessuna chiave
-segreta Supabase è richiesta. Il browser offre soltanto login password e logout.
-Non sono presenti signup, OAuth, magic link o reset password.
+utente e RLS, Qdrant per vettori/chunk, PDF sul volume DATA_DIR.
+Per la versione multiutente con admin e consumi, completare questa procedura
+iniziale e poi seguire [ADMIN_READER.md](ADMIN_READER.md): richiede una seconda
+migrazione e `SUPABASE_ADMIN_KEY` solo sul backend. Il browser usa la chiave
+pubblica. Non sono presenti signup pubblico, OAuth o magic link.
+Dopo la seconda migrazione, ruoli e permessi si gestiscono dal pannello admin;
+modificare gli app_metadata non aggiorna più il ruolo applicativo corrente.
 
 ## Operazioni da eseguire sul server (amministratore)
 

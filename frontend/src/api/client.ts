@@ -26,6 +26,7 @@ export interface KnowledgeItem {
   description: string;
   created_at: string;
   documents_count: number;
+  can_manage?: boolean;
 }
 
 export interface KnowledgeListResponse {
@@ -132,7 +133,7 @@ export function getDocumentFileUrl(knowledgeId: string, documentId: string): str
 
 /**
  * Costruisce l'URL del PDF viewer integrato nell'app.
- * Si apre in una nuova tab con il PDF renderizzato, scrollato alla pagina e con testo evidenziato.
+ * Compatibilità con URL salvati; le fonti nella chat usano il lettore laterale.
  */
 export function getPDFViewerUrl(params: {
   knowledgeId: string;
@@ -174,6 +175,7 @@ export async function sendChatMessage(
   topK: number = 5,
   knowledgeId?: string,
   conversationId?: string,
+  modelKey?: string,
 ): Promise<ChatResponse> {
   const res = await authFetch(`${API_URL}/api/chat`, {
     method: 'POST',
@@ -184,6 +186,7 @@ export async function sendChatMessage(
       conversation_history: conversationHistory,
       knowledge_id: knowledgeId || null,
       conversation_id: conversationId || null,
+      model_key: modelKey || null,
     }),
   });
   if (!res.ok) {

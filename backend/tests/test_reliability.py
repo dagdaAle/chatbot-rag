@@ -70,7 +70,7 @@ def test_follow_up_uses_history_and_sources_keep_kb(monkeypatch):
         captured['query'] = query
         return [dict(filename='a.pdf', text='scadenza', document_id='d', chunk_index=0, score=.8)]
     monkeypatch.setattr(chat, 'retrieve_context', retrieve)
-    monkeypatch.setattr(chat, 'generate_response', lambda *args: 'risposta')
+    monkeypatch.setattr(chat, 'generate_response', lambda *args, **kwargs: 'risposta')
     result = chat.chat('E le scadenze?', knowledge_id='kb', conversation_history=[{'role':'user','content':'Bando Verona'}])
     assert 'Bando Verona' in captured['query']
     assert result['sources'][0]['knowledge_id'] == 'kb'
@@ -116,7 +116,7 @@ def test_deepseek_uses_dedicated_client(monkeypatch):
     captured = {}
     def create(**kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='ok'))])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='ok'))],usage=None)
     fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
     monkeypatch.setattr(chat, '_get_deepseek_client', lambda: fake)
     monkeypatch.setattr(chat, '_get_openai_client', lambda: pytest.fail('OpenAI must not be called'))
@@ -133,12 +133,14 @@ def test_ollama_embeddings_work_without_openai_key(monkeypatch):
     monkeypatch.setattr(settings, 'openai_api_key', '')
     monkeypatch.setattr(runtime_config, 'embedding_provider', 'ollama')
     monkeypatch.setattr(runtime_config, 'embedding_model', 'nomic-embed-text')
-    monkeypatch.setattr(embeddings, 'ollama_generate_embedding', lambda text, model: [0.5] * 768)
+    monkeypatch.setattr(embeddings, 'ollama_generate_embedding', lambda text, model, **kwargs: [0.5] * 768)
     assert len(embeddings.get_query_embedding('test')) == 768
 
 
 def test_bge_model_is_embedding_not_chat(monkeypatch):
     from app.api import models
     monkeypatch.setattr(models, '_fetch_ollama_models', lambda: [models.ModelInfo(id='bge-m3:latest',name='bge-m3',provider='ollama')])
+    from app.core import supabase
+    monkeypatch.setattr(supabase, 'rest', lambda *args, **kwargs: [])
     assert not any(m.id == 'bge-m3:latest' for m in models.list_chat_models().models)
     assert any(m.id == 'bge-m3:latest' for m in models.list_embedding_models().models)

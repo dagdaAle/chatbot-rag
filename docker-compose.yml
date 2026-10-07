@@ -36,6 +36,7 @@ services:
       - DATA_DIR=/app/data
       - SUPABASE_URL=${SUPABASE_URL:-https://supabase.intecha.dev}
       - SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV}
+      - SUPABASE_ADMIN_KEY=${SUPABASE_ADMIN_KEY:-}
       - SUPABASE_JWT_ISSUER=${SUPABASE_JWT_ISSUER:-}
     depends_on:
       - qdrant

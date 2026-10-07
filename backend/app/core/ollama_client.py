@@ -7,7 +7,7 @@ from app.config import settings
 
 def generate_chat_response(
     messages: list[dict],
-    model: Optional[str] = None
+    model: Optional[str] = None, usage: dict | None = None
 ) -> str:
     """Genera una risposta usando Ollama per la chat."""
     model = model or settings.ollama_chat_model
@@ -29,12 +29,14 @@ def generate_chat_response(
         )
         response.raise_for_status()
         data = response.json()
+        if usage is not None:
+            usage.update(input_tokens=data.get("prompt_eval_count"), output_tokens=data.get("eval_count"))
         return data.get("message", {}).get("content", "")
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"Errore durante la generazione con Ollama: {e}")
 
 
-def generate_embedding(text: str, model: Optional[str] = None) -> list[float]:
+def generate_embedding(text: str, model: Optional[str] = None, usage: dict | None = None) -> list[float]:
     """Genera embedding usando Ollama (API /api/embed)."""
     model = model or settings.ollama_embedding_model
     url = f"{settings.ollama_base_url}/api/embed"
@@ -54,6 +56,8 @@ def generate_embedding(text: str, model: Optional[str] = None) -> list[float]:
         response.raise_for_status()
         data = response.json()
         # /api/embed restituisce {"embeddings": [[...]]}
+        if usage is not None:
+            usage.update(input_tokens=data.get("prompt_eval_count"), output_tokens=0)
         embeddings = data.get("embeddings", [])
         if embeddings and len(embeddings) > 0:
             return embeddings[0]

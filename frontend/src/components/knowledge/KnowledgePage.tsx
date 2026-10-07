@@ -1,3 +1,4 @@
+import { useReader } from '@/context/ReaderContext';
 import { useAuthUser } from '@/auth/AuthContext';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -33,7 +34,6 @@ import {
   deleteDocument,
   deleteKnowledge,
   fetchDocuments,
-  getPDFViewerUrl,
   uploadDocuments,
   type DocumentItem,
   type KnowledgeItem,
@@ -49,9 +49,11 @@ type Pending =
   | null;
 
 export function KnowledgePage() {
+  const reader = useReader();
   const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
   const { knowledges, reloadKnowledges, selectedKnowledgeId, setSelectedKnowledgeId } = useApp();
   const selected = knowledges.find((k) => k.id === selectedKnowledgeId) ?? null;
+  const canManage = !!selected?.can_manage;
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
@@ -80,7 +82,7 @@ export function KnowledgePage() {
   }, [selectedId, loadDocuments]);
 
   const upload = async (files: File[]) => {
-    if (!selected || !isAdmin) return;
+    if (!selected || !canManage) return;
     const pdfs = files.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     if (pdfs.length === 0) {
       toast.error('Solo file PDF');
@@ -192,7 +194,7 @@ export function KnowledgePage() {
                   </Button>}
                 </div>
 
-                {isAdmin && <button
+                {canManage && <button
                   type="button"
                   disabled={uploading}
                   onClick={() => fileInput.current?.click()}
@@ -249,19 +251,17 @@ export function KnowledgePage() {
                           <FileText className="text-muted-foreground size-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <a
-                            href={getPDFViewerUrl({ knowledgeId: selected.id, documentId: doc.document_id, pageStart: 1, filename: doc.filename })}
-                            target="_blank"
-                            rel="noreferrer"
+                          <button
+                            onClick={() => reader.open({ knowledgeId: selected.id, documentId: doc.document_id, pageStart: 1, filename: doc.filename })}
                             className="block truncate text-sm font-medium hover:underline"
                           >
                             {doc.filename}
-                          </a>
+                          </button>
                           <p className="text-muted-foreground text-xs">
                             {formatDate(doc.uploaded_at)} · {doc.chunks_count} parti
                           </p>
                         </div>
-                        {isAdmin && <Button
+                        {canManage && <Button
                           variant="ghost"
                           size="icon"
                           className="size-8 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"

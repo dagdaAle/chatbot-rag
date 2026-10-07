@@ -269,6 +269,7 @@ def generate_response(
     question: str,
     contexts: list[dict],
     conversation_history: list[dict] | None = None,
+    provider: str | None = None, model: str | None = None,
 ) -> str:
     """Genera una risposta usando OpenAI o Ollama con il contesto recuperato e la cronologia."""
     if not contexts:
@@ -306,22 +307,18 @@ Domanda dell'utente: {question}"""
 
     messages.append({"role": "user", "content": user_message})
 
-    # Genera la risposta con il provider della CHAT
-    if runtime_config.chat_provider == "ollama":
-        return ollama_generate_chat_response(messages, model=runtime_config.chat_model)
-
-    # Usa OpenAI
-    client = _get_deepseek_client() if runtime_config.chat_provider == "deepseek" else _get_openai_client()
-    provider_options = {"extra_body": {"thinking": {"type": "disabled"}}} if runtime_config.chat_provider == "deepseek" else {}
-    response = client.chat.completions.create(
-        **provider_options,
-        model=runtime_config.chat_model,
-        messages=messages,
-        temperature=0.3,
-        max_tokens=1500,
-    )
-
-    return response.choices[0].message.content or ""
+    from app.core.usage import measure
+    provider = provider or runtime_config.chat_provider
+    model = model or runtime_config.chat_model
+    with measure(provider, model, 'chat') as usage:
+        if provider == 'ollama':
+            return ollama_generate_chat_response(messages, model=model, usage=usage)
+        client = _get_deepseek_client() if provider == 'deepseek' else _get_openai_client()
+        options = {'extra_body': {'thinking': {'type': 'disabled'}}} if provider == 'deepseek' else {}
+        response = client.chat.completions.create(**options, model=model, messages=messages, temperature=0.3, max_tokens=1500)
+        if response.usage:
+            usage.update(input_tokens=response.usage.prompt_tokens, output_tokens=response.usage.completion_tokens)
+        return response.choices[0].message.content or ''
 
 
 def chat(
@@ -330,6 +327,7 @@ def chat(
     conversation_history: list[dict] | None = None,
     knowledge_id: str | None = None,
     score_threshold: float = 0.3,
+    provider: str | None = None, model: str | None = None,
 ) -> dict:
     """Pipeline RAG completa: retrieve + generate con supporto cronologia e knowledge."""
     # Recupera il contesto dalla knowledge specifica
@@ -348,7 +346,7 @@ def chat(
     contexts = retrieve_context(retrieval_query, top_k=top_k, knowledge_id=knowledge_id, score_threshold=score_threshold)
 
     # Genera la risposta
-    answer = generate_response(question, contexts, history)
+    answer = generate_response(question, contexts, history, provider=provider, model=model)
 
     # Prepara le fonti con testo completo per il frontend
     sources = []
