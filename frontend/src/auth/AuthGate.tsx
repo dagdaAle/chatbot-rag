@@ -5,6 +5,7 @@ import { supabase } from './supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import intechaLogo from '@/assets/intecha-logo-white.svg';
 
 function Login() {
   const [email, setEmail] = useState('');
@@ -27,7 +28,11 @@ function Login() {
     }
   }
   return <main className="bg-background flex min-h-screen items-center justify-center p-6">
-    <form onSubmit={submit} className="w-full max-w-sm space-y-5 rounded-xl border p-6 shadow-sm">
+    <form onSubmit={submit} className="w-full max-w-sm overflow-hidden rounded-xl border shadow-sm">
+      <div className="bg-[#0E1116] px-6 py-6">
+        <img src={intechaLogo} alt="Intecha" width={179} height={30} className="h-[30px] w-auto" />
+      </div>
+      <div className="space-y-5 p-6">
       <div><h1 className="text-xl font-semibold">Accedi a Chatbot RAG</h1>
         <p className="text-muted-foreground mt-2 text-sm">Accesso riservato agli utenti invitati.</p></div>
       <div className="space-y-2"><Label htmlFor="email">Email</Label>
@@ -36,6 +41,7 @@ function Login() {
         <Input id="password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required disabled={busy} /></div>
       {error && <p role="alert" className="text-destructive text-sm">{error}</p>}
       <Button type="submit" className="w-full" disabled={busy}>{busy ? 'Accesso…' : 'Accedi'}</Button>
+      </div>
     </form>
   </main>;
 }
