@@ -44,9 +44,14 @@ def test_no_destructive_dimension_change():
 
 
 def test_embedding_change_refused_even_same_dimensions():
+    from app.auth import current_user, User
+    async def admin():
+        yield User('00000000-0000-0000-0000-000000000001', 'test', True)
+    app.dependency_overrides[current_user] = admin
     with TestClient(app) as client:
         response = client.put('/api/settings/models/embedding', json={'provider':'ollama','model_id':'other-model'})
         assert response.status_code == 409
+    app.dependency_overrides.clear()
 
 
 def test_threshold_is_respected(monkeypatch):
@@ -71,11 +76,15 @@ def test_follow_up_uses_history_and_sources_keep_kb(monkeypatch):
     assert result['sources'][0]['knowledge_id'] == 'kb'
 
 
-def test_concurrent_knowledge_updates():
+def test_concurrent_json_writes_are_atomic(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
+    from app.core.storage import write_json
+    import json
+    target = tmp_path / 'prompt.json'
     with ThreadPoolExecutor(max_workers=4) as pool:
-        ids = list(pool.map(lambda n: create_knowledge(f'kb-{n}').id, range(8)))
-    assert set(ids).issubset({kb.id for kb in list_knowledges()})
+        list(pool.map(lambda n: write_json(target, {'value': 'x' * 1000, 'n': n}), range(8)))
+    assert json.loads(target.read_text())['value'] == 'x' * 1000
+    assert not list(tmp_path.glob('.pending-*'))
 
 
 def test_spa_deep_links_and_unknown_api(tmp_path):

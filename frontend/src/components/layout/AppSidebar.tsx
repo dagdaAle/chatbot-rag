@@ -1,3 +1,4 @@
+import { supabase } from '@/auth/supabase';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTheme } from 'next-themes';
@@ -171,6 +172,10 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter>
+        <SidebarMenuButton onClick={async () => {
+          const { error } = await supabase.auth.signOut({ scope: 'local' });
+          if (error) toast.error('Uscita non riuscita');
+        }}>Esci</SidebarMenuButton>
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>

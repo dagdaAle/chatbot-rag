@@ -1,3 +1,4 @@
+import { useAuthUser } from '@/auth/AuthContext';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, RotateCcw, Save, ShieldCheck } from 'lucide-react';
@@ -56,6 +57,7 @@ export function SettingsPage() {
 }
 
 function ModelsSettings() {
+  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
   const [config, setConfig] = useState<ProviderConfigResponse | null>(null);
   const [embeddings, setEmbeddings] = useState<ModelInfo[]>([]);
   const [currentEmbedding, setCurrentEmbedding] = useState('');
@@ -91,7 +93,7 @@ function ModelsSettings() {
       <Card>
         <CardHeader>
           <CardTitle>Provider</CardTitle>
-          <CardDescription>Il modello di chat si sceglie dalla barra in alto nella chat.</CardDescription>
+          <CardDescription>Il modello di chat è condiviso e viene configurato dagli amministratori.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Badge variant={config?.ollama_available ? 'default' : 'outline'}>
@@ -116,6 +118,7 @@ function ModelsSettings() {
           <Select
             value={current ? `${current.provider}:${current.id}` : undefined}
             onValueChange={changeEmbedding}
+            disabled={!isAdmin}
           >
             <SelectTrigger className="w-full sm:w-80" aria-label="Modello di embedding">
               <SelectValue placeholder="Seleziona" />
@@ -135,6 +138,7 @@ function ModelsSettings() {
 }
 
 function PromptSettings() {
+  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
   const [prompt, setPrompt] = useState('');
   const [original, setOriginal] = useState('');
   const [isDefault, setIsDefault] = useState(true);
@@ -195,14 +199,14 @@ function PromptSettings() {
           id="system-prompt"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          disabled={loading}
+          disabled={loading || !isAdmin}
           className="min-h-80 font-mono text-xs leading-relaxed"
         />
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" onClick={reset} disabled={loading || isDefault}>
+          <Button variant="outline" onClick={reset} disabled={loading || isDefault || !isAdmin}>
             <RotateCcw /> Ripristina predefinito
           </Button>
-          <Button onClick={save} disabled={saving || prompt === original}>
+          <Button onClick={save} disabled={saving || prompt === original || !isAdmin}>
             {saving ? <Loader2 className="animate-spin" /> : <Save />} Salva
           </Button>
         </div>

@@ -1,8 +1,9 @@
+import { authFetch } from '@/auth/supabase';
 /** Client API backend - URL da variabile ambiente in build-time */
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 export async function fetchHealth(): Promise<{ status: string }> {
-  const res = await fetch(`${API_URL}/health`);
+  const res = await authFetch(`${API_URL}/health`);
   if (!res.ok) throw new Error('Health check failed');
   return res.json();
 }
@@ -12,7 +13,7 @@ export async function fetchHealthQdrant(): Promise<{
   qdrant: string;
   collections_count: number;
 }> {
-  const res = await fetch(`${API_URL}/health/qdrant`);
+  const res = await authFetch(`${API_URL}/health/qdrant`);
   if (!res.ok) throw new Error('Qdrant health check failed');
   return res.json();
 }
@@ -33,13 +34,13 @@ export interface KnowledgeListResponse {
 }
 
 export async function fetchKnowledges(): Promise<KnowledgeListResponse> {
-  const res = await fetch(`${API_URL}/api/knowledge`);
+  const res = await authFetch(`${API_URL}/api/knowledge`);
   if (!res.ok) throw new Error('Errore caricamento knowledge');
   return res.json();
 }
 
 export async function createKnowledge(name: string, description: string = ''): Promise<KnowledgeItem> {
-  const res = await fetch(`${API_URL}/api/knowledge`, {
+  const res = await authFetch(`${API_URL}/api/knowledge`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description }),
@@ -52,7 +53,7 @@ export async function createKnowledge(name: string, description: string = ''): P
 }
 
 export async function deleteKnowledge(knowledgeId: string): Promise<{ id: string; status: string }> {
-  const res = await fetch(`${API_URL}/api/knowledge/${knowledgeId}`, { method: 'DELETE' });
+  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Errore eliminazione knowledge');
   return res.json();
 }
@@ -82,7 +83,7 @@ export interface UploadResult {
 }
 
 export async function fetchDocuments(knowledgeId: string): Promise<{ documents: DocumentItem[]; total: number }> {
-  const res = await fetch(`${API_URL}/api/knowledge/${knowledgeId}/documents`);
+  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/documents`);
   if (!res.ok) throw new Error('Errore caricamento documenti');
   return res.json();
 }
@@ -92,7 +93,7 @@ export async function uploadDocuments(knowledgeId: string, files: File[]): Promi
   for (const file of files) {
     formData.append('files', file);
   }
-  const res = await fetch(`${API_URL}/api/knowledge/${knowledgeId}/documents/upload`, {
+  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/documents/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -104,7 +105,7 @@ export async function uploadDocuments(knowledgeId: string, files: File[]): Promi
 }
 
 export async function deleteDocument(knowledgeId: string, documentId: string): Promise<{ document_id: string; status: string }> {
-  const res = await fetch(`${API_URL}/api/knowledge/${knowledgeId}/documents/${documentId}`, { method: 'DELETE' });
+  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/documents/${documentId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Errore eliminazione documento');
   return res.json();
 }
@@ -174,7 +175,7 @@ export async function sendChatMessage(
   knowledgeId?: string,
   conversationId?: string,
 ): Promise<ChatResponse> {
-  const res = await fetch(`${API_URL}/api/chat`, {
+  const res = await authFetch(`${API_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -225,13 +226,13 @@ export interface ConversationDetail {
 }
 
 export async function fetchConversations(): Promise<ConversationListResponse> {
-  const res = await fetch(`${API_URL}/api/conversations`);
+  const res = await authFetch(`${API_URL}/api/conversations`);
   if (!res.ok) throw new Error('Errore caricamento conversazioni');
   return res.json();
 }
 
 export async function createConversation(title: string, knowledgeId?: string): Promise<ConversationItem> {
-  const res = await fetch(`${API_URL}/api/conversations`, {
+  const res = await authFetch(`${API_URL}/api/conversations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -247,7 +248,7 @@ export async function createConversation(title: string, knowledgeId?: string): P
 }
 
 export async function fetchConversation(id: string): Promise<ConversationDetail> {
-  const res = await fetch(`${API_URL}/api/conversations/${id}`);
+  const res = await authFetch(`${API_URL}/api/conversations/${id}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
@@ -256,7 +257,7 @@ export async function fetchConversation(id: string): Promise<ConversationDetail>
 }
 
 export async function deleteConversation(id: string): Promise<{ id: string; status: string }> {
-  const res = await fetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
@@ -270,7 +271,7 @@ export async function addMessageToConversation(
   content: string,
   sources?: ChatSource[],
 ): Promise<ConversationMessage> {
-  const res = await fetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
+  const res = await authFetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -299,13 +300,13 @@ export interface PromptUpdateResponse {
 }
 
 export async function fetchSystemPrompt(): Promise<PromptResponse> {
-  const res = await fetch(`${API_URL}/api/settings/prompt`);
+  const res = await authFetch(`${API_URL}/api/settings/prompt`);
   if (!res.ok) throw new Error('Errore caricamento prompt');
   return res.json();
 }
 
 export async function updateSystemPrompt(prompt: string): Promise<PromptUpdateResponse> {
-  const res = await fetch(`${API_URL}/api/settings/prompt`, {
+  const res = await authFetch(`${API_URL}/api/settings/prompt`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
@@ -318,7 +319,7 @@ export async function updateSystemPrompt(prompt: string): Promise<PromptUpdateRe
 }
 
 export async function resetSystemPrompt(): Promise<PromptUpdateResponse> {
-  const res = await fetch(`${API_URL}/api/settings/prompt/reset`, {
+  const res = await authFetch(`${API_URL}/api/settings/prompt/reset`, {
     method: 'POST',
   });
   if (!res.ok) throw new Error('Errore ripristino prompt');
@@ -326,7 +327,7 @@ export async function resetSystemPrompt(): Promise<PromptUpdateResponse> {
 }
 
 export async function fetchDefaultPrompt(): Promise<PromptResponse> {
-  const res = await fetch(`${API_URL}/api/settings/prompt/default`);
+  const res = await authFetch(`${API_URL}/api/settings/prompt/default`);
   if (!res.ok) throw new Error('Errore caricamento prompt di default');
   return res.json();
 }
@@ -368,25 +369,25 @@ export interface ProviderConfigResponse {
 }
 
 export async function fetchProviderConfig(): Promise<ProviderConfigResponse> {
-  const res = await fetch(`${API_URL}/api/settings/models/config`);
+  const res = await authFetch(`${API_URL}/api/settings/models/config`);
   if (!res.ok) throw new Error('Errore caricamento configurazione provider');
   return res.json();
 }
 
 export async function fetchChatModels(): Promise<ModelsListResponse> {
-  const res = await fetch(`${API_URL}/api/settings/models/chat`);
+  const res = await authFetch(`${API_URL}/api/settings/models/chat`);
   if (!res.ok) throw new Error('Errore caricamento modelli chat');
   return res.json();
 }
 
 export async function fetchEmbeddingModels(): Promise<ModelsListResponse> {
-  const res = await fetch(`${API_URL}/api/settings/models/embedding`);
+  const res = await authFetch(`${API_URL}/api/settings/models/embedding`);
   if (!res.ok) throw new Error('Errore caricamento modelli embedding');
   return res.json();
 }
 
 export async function setChatModel(modelId: string, provider: string): Promise<ModelSetResponse> {
-  const res = await fetch(`${API_URL}/api/settings/models/chat`, {
+  const res = await authFetch(`${API_URL}/api/settings/models/chat`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model_id: modelId, provider }),
@@ -399,7 +400,7 @@ export async function setChatModel(modelId: string, provider: string): Promise<M
 }
 
 export async function setEmbeddingModel(modelId: string, provider: string): Promise<ModelSetResponse> {
-  const res = await fetch(`${API_URL}/api/settings/models/embedding`, {
+  const res = await authFetch(`${API_URL}/api/settings/models/embedding`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model_id: modelId, provider }),

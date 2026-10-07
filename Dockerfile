@@ -4,6 +4,10 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ .
+ARG VITE_SUPABASE_URL=https://supabase.intecha.dev
+ARG VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
 RUN npm run build
 
 # ── Stage 2: Build backend + runtime ──

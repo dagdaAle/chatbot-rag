@@ -3,8 +3,8 @@ services:
     image: qdrant/qdrant:latest
     container_name: chatbot-qdrant
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
     networks:
@@ -34,6 +34,9 @@ services:
       - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
       # Directory dati (montata come volume per persistenza)
       - DATA_DIR=/app/data
+      - SUPABASE_URL=${SUPABASE_URL:-https://supabase.intecha.dev}
+      - SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV}
+      - SUPABASE_JWT_ISSUER=${SUPABASE_JWT_ISSUER:-}
     depends_on:
       - qdrant
     restart: on-failure
@@ -49,6 +52,8 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=
+      - VITE_SUPABASE_URL=${SUPABASE_URL:-https://supabase.intecha.dev}
+      - VITE_SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV}
     volumes:
       - ./frontend:/app
       - /app/node_modules

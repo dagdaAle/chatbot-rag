@@ -87,6 +87,8 @@ def list_all_conversations() -> ConversationListResponse:
             for conv in convs
         ]
         return ConversationListResponse(conversations=items, total=len(items))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -105,6 +107,8 @@ def create_new_conversation(body: ConversationCreate) -> ConversationResponse:
             updated_at=conv["updated_at"],
             knowledge_id=conv.get("knowledge_id"),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -174,6 +178,8 @@ def add_message_to_conversation(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -1,30 +1,13 @@
-"""Gestione Knowledge Base: CRUD metadati + collezioni Qdrant."""
-import json
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
-from app.config import DATA_DIR
-from dataclasses import dataclass, asdict
-from app.core.storage import write_json, metadata_lock
-from functools import wraps
-
-def serialized(function):
-    @wraps(function)
-    def wrapped(*args, **kwargs):
-        with metadata_lock:
-            return function(*args, **kwargs)
-    return wrapped
-
+"""Shared knowledge metadata in Supabase; embeddings stay in Qdrant."""
+from dataclasses import dataclass
+from uuid import uuid4
+from app.core.supabase import rest, identifier
 from app.core.qdrant_client import get_client, ensure_collection_for_kb, delete_collection_for_kb
 from app.core.documents import delete_knowledge_pdfs
-
-# File persistenza metadati knowledge
-KNOWLEDGES_FILE = DATA_DIR / "knowledges.json"
 
 
 @dataclass
 class Knowledge:
-    """Modello dati per una Knowledge Base."""
     id: str
     name: str
     description: str
@@ -32,110 +15,47 @@ class Knowledge:
     documents_count: int = 0
 
 
-def _load_knowledges() -> list[dict]:
-    """Carica la lista delle knowledge dal file JSON."""
+def get_collection_name(knowledge_id):
+    return 'kb_' + identifier(knowledge_id).replace('-', '_')
+
+
+def _knowledge(row):
+    return Knowledge(id=row['id'], name=row['name'], description=row.get('description', ''),
+                     created_at=row['created_at'], documents_count=row.get('documents', [{}])[0].get('count', 0))
+
+
+def list_knowledges():
+    return [_knowledge(row) for row in rest('GET', 'knowledge_bases', params={'select':'*,documents(count)', 'order':'created_at.asc'})]
+
+
+def get_knowledge(knowledge_id):
+    rows = rest('GET', 'knowledge_bases', params={'id':f'eq.{identifier(knowledge_id)}', 'select':'*,documents(count)'})
+    return _knowledge(rows[0]) if rows else None
+
+
+def create_knowledge(name, description=''):
+    kb_id = str(uuid4())
+    row = rest('POST', 'knowledge_bases', body={'id':kb_id, 'name':name, 'description':description})[0]
     try:
-        if KNOWLEDGES_FILE.exists():
-            with open(KNOWLEDGES_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("knowledges", [])
+        ensure_collection_for_kb(get_client(), get_collection_name(kb_id))
     except Exception:
-        pass
-    return []
+        rest('DELETE', 'knowledge_bases', params={'id':f'eq.{kb_id}'})
+        raise
+    return _knowledge(row)
 
 
-def _save_knowledges(knowledges: list[dict]) -> None:
-    """Salva la lista delle knowledge nel file JSON."""
-    write_json(KNOWLEDGES_FILE, {"knowledges": knowledges})
-
-
-def get_collection_name(knowledge_id: str) -> str:
-    """Restituisce il nome della collezione Qdrant per una knowledge."""
-    return f"kb_{knowledge_id.replace('-', '_')}"
-
-
-@serialized
-def list_knowledges() -> list[Knowledge]:
-    """Restituisce tutte le knowledge."""
-    raw = _load_knowledges()
-    return [Knowledge(**k) for k in raw]
-
-
-@serialized
-def get_knowledge(knowledge_id: str) -> Knowledge | None:
-    """Restituisce una knowledge per ID."""
-    raw = _load_knowledges()
-    for k in raw:
-        if k["id"] == knowledge_id:
-            return Knowledge(**k)
-    return None
-
-
-@serialized
-def create_knowledge(name: str, description: str = "") -> Knowledge:
-    """Crea una nuova knowledge con la relativa collezione Qdrant."""
-    kb_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-
-    kb = Knowledge(
-        id=kb_id,
-        name=name,
-        description=description,
-        created_at=now,
-        documents_count=0,
-    )
-
-    # Crea collezione Qdrant
-    client = get_client()
-    collection_name = get_collection_name(kb_id)
-    ensure_collection_for_kb(client, collection_name)
-
-    # Salva metadati
-    knowledges = _load_knowledges()
-    knowledges.append(asdict(kb))
-    _save_knowledges(knowledges)
-
-    return kb
-
-
-@serialized
-def delete_knowledge(knowledge_id: str) -> bool:
-    """Elimina una knowledge e la sua collezione Qdrant."""
-    knowledges = _load_knowledges()
-    found = False
-    updated = []
-    for k in knowledges:
-        if k["id"] == knowledge_id:
-            found = True
-        else:
-            updated.append(k)
-
-    if not found:
+def delete_knowledge(knowledge_id):
+    if not get_knowledge(knowledge_id):
         return False
-
-    # Elimina collezione Qdrant
+    # Do not swallow vector-storage errors or remove metadata before cleanup succeeds.
     client = get_client()
-    collection_name = get_collection_name(knowledge_id)
-    delete_collection_for_kb(client, collection_name)
-
-    # Elimina tutti i PDF dal disco
+    name = get_collection_name(knowledge_id)
+    if any(c.name == name for c in client.get_collections().collections):
+        client.delete_collection(name)
     delete_knowledge_pdfs(knowledge_id)
-
-    # Aggiorna metadati
-    _save_knowledges(updated)
-    return True
+    return bool(rest('DELETE', 'knowledge_bases', params={'id':f'eq.{identifier(knowledge_id)}'}))
 
 
-@serialized
-def update_documents_count(knowledge_id: str, delta: int = 0, absolute: int | None = None) -> None:
-    """Aggiorna il conteggio documenti di una knowledge."""
-    knowledges = _load_knowledges()
-    for k in knowledges:
-        if k["id"] == knowledge_id:
-            if absolute is not None:
-                k["documents_count"] = absolute
-            else:
-                k["documents_count"] = max(0, k.get("documents_count", 0) + delta)
-            break
-    _save_knowledges(knowledges)
-
+def update_documents_count(*args, **kwargs):
+    # Derived from document rows; never updated by GET requests.
+    pass

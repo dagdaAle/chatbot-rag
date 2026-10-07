@@ -1,3 +1,4 @@
+import { useAuthUser } from '@/auth/AuthContext';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -43,6 +44,7 @@ const SUGGESTIONS = [
 ];
 
 export function ChatPage() {
+  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
   const { id: routeId } = useParams();
   const navigate = useNavigate();
   const { knowledges, selectedKnowledgeId, setSelectedKnowledgeId, reloadConversations } = useApp();
@@ -187,6 +189,7 @@ export function ChatPage() {
           <Select
             value={selectedKnowledgeId ?? undefined}
             onValueChange={setSelectedKnowledgeId}
+            disabled={!!routeId}
           >
             <SelectTrigger size="sm" className="max-w-48" aria-label="Knowledge base">
               <BookOpen className="text-muted-foreground" />
@@ -205,6 +208,7 @@ export function ChatPage() {
           <Select
             value={currentModelValue ? `${currentModelValue.provider}:${currentModelValue.id}` : undefined}
             onValueChange={changeModel}
+            disabled={!isAdmin}
           >
             <SelectTrigger size="sm" className="max-w-52" aria-label="Modello">
               <Cpu className="text-muted-foreground" />
@@ -247,9 +251,9 @@ export function ChatPage() {
                     <>
                       Non ci sono ancora documenti.{' '}
                       <Link to="/knowledge" className="text-foreground underline underline-offset-4">
-                        Crea una knowledge base
+                        {isAdmin ? "Crea una knowledge base" : "Nessuna knowledge base disponibile"}
                       </Link>{' '}
-                      e carica dei PDF.
+                      {isAdmin ? " e carica dei PDF." : ": chiedi a un amministratore di caricare i documenti."}
                     </>
                   ) : (
                     'Le risposte citano i documenti della knowledge base selezionata.'

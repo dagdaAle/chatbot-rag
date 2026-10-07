@@ -1,4 +1,6 @@
 """Endpoint per gestione modelli LLM e embedding."""
+from fastapi import Depends
+from app.auth import require_admin
 import requests
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
@@ -164,7 +166,7 @@ def list_embedding_models() -> ModelsListResponse:
     )
 
 
-@router.put("/chat", response_model=ModelSetResponse)
+@router.put("/chat", response_model=ModelSetResponse, dependencies=[Depends(require_admin)])
 def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
     """Imposta il modello chat corrente (indipendente dagli embedding)."""
     if request.provider not in ("openai", "ollama", "deepseek"):
@@ -191,7 +193,7 @@ def set_chat_model(request: ModelSetRequest) -> ModelSetResponse:
     )
 
 
-@router.put("/embedding", response_model=ModelSetResponse)
+@router.put("/embedding", response_model=ModelSetResponse, dependencies=[Depends(require_admin)])
 def set_embedding_model(request: ModelSetRequest) -> ModelSetResponse:
     """Imposta il modello embedding corrente (indipendente dalla chat)."""
     if request.provider not in ("openai", "ollama"):

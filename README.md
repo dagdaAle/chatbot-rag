@@ -149,3 +149,17 @@ sudo pmset -a sleep 0 disksleep 0 powernap 0
 
 Questa configurazione usa la LAN. Non pubblicare l'API Ollama direttamente su
 Internet. Dopo gli aggiornamenti di Ollama ricontrollare raggiungibilità e regole.
+
+## Autenticazione e database applicativo Supabase
+
+Login email/password per utenti invitati, verifica ES256 tramite JWKS pubblico,
+metadati KB/documenti e conversazioni su Supabase Postgres via PostgREST con JWT
+utente. Le RLS proteggono conversazioni e messaggi personali. KB e documenti sono
+leggibili da tutti gli autenticati; creazione, upload, cancellazione e impostazioni
+globali richiedono `app_metadata.chatbot_role = admin`. Qdrant conserva vettori e
+chunk; i PDF rimangono nel volume persistente.
+
+Prima del deploy applicare lo schema e assegnare l'amministratore seguendo
+[docs/SUPABASE.md](docs/SUPABASE.md). Nessuna chiave service-role, sb_secret,
+password DB o JWT secret serve all'app. I vecchi metadati JSON e le conversazioni
+SQLite richiedono un'importazione esplicita, senza attribuzioni automatiche.

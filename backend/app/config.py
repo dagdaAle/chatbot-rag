@@ -10,6 +10,10 @@ DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent.parent / "data")
 class Settings(BaseSettings):
     """Impostazioni applicazione."""
 
+    supabase_url: str = "https://supabase.intecha.dev"
+    supabase_publishable_key: str = "sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV"
+    supabase_jwt_issuer: str = ""
+
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     qdrant_host: str = "qdrant"

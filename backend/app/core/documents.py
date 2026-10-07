@@ -18,7 +18,8 @@ UPLOADS_DIR = DATA_DIR / "uploads"
 
 def get_upload_path(knowledge_id: str, document_id: str) -> Path:
     """Restituisce il path su disco per un PDF caricato."""
-    return UPLOADS_DIR / knowledge_id / f"{document_id}.pdf"
+    from app.core.supabase import identifier
+    return UPLOADS_DIR / identifier(knowledge_id) / f"{identifier(document_id)}.pdf"
 
 
 def save_pdf_to_disk(content: bytes, knowledge_id: str, document_id: str) -> Path:

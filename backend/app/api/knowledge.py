@@ -1,4 +1,6 @@
 """Endpoint CRUD per Knowledge Base."""
+from fastapi import Depends
+from app.auth import require_admin
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
@@ -49,11 +51,13 @@ def list_all_knowledges() -> KnowledgeListResponse:
             for kb in kbs
         ]
         return KnowledgeListResponse(knowledges=items, total=len(items))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("", response_model=KnowledgeResponse, status_code=201)
+@router.post("", response_model=KnowledgeResponse, status_code=201, dependencies=[Depends(require_admin)])
 def create_new_knowledge(body: KnowledgeCreate) -> KnowledgeResponse:
     """Crea una nuova Knowledge Base."""
     if not body.name or not body.name.strip():
@@ -67,6 +71,8 @@ def create_new_knowledge(body: KnowledgeCreate) -> KnowledgeResponse:
             created_at=kb.created_at,
             documents_count=kb.documents_count,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -86,7 +92,7 @@ def get_single_knowledge(knowledge_id: str) -> KnowledgeResponse:
     )
 
 
-@router.delete("/{knowledge_id}")
+@router.delete("/{knowledge_id}", dependencies=[Depends(require_admin)])
 def delete_single_knowledge(knowledge_id: str) -> dict:
     """Elimina una Knowledge Base e tutti i suoi documenti."""
     success = delete_knowledge(knowledge_id)

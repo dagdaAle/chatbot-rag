@@ -5,7 +5,8 @@ from fastapi import APIRouter, HTTPException
 from app.core.chat import chat as rag_chat
 from app.core.conversations import (
     create_conversation,
-    add_message,
+    get_conversation,
+    save_turn,
 )
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -53,59 +54,23 @@ def chat(request: ChatRequest) -> ChatResponse:
     if not request.question or not request.question.strip():
         raise HTTPException(status_code=400, detail="La domanda non può essere vuota")
 
-    try:
-        # Converti la cronologia in formato dict
-        history = [{"role": msg.role, "content": msg.content} for msg in request.conversation_history]
-
-        # Genera la risposta
-        result = rag_chat(
-            request.question.strip(),
-            top_k=request.top_k,
-            conversation_history=history if history else None,
-            knowledge_id=request.knowledge_id,
-            score_threshold=request.score_threshold,
-        )
-
-        conversation_id = request.conversation_id
-
-        # Salvataggio automatico
-        try:
-            # Se non c'è conversation_id, crea una nuova conversazione
-            if not conversation_id:
-                # Genera titolo dalla prima domanda (troncato a 40 caratteri)
-                title = request.question.strip()
-                if len(title) > 40:
-                    title = title[:37] + "..."
-                
-                new_conv = create_conversation(title, request.knowledge_id)
-                conversation_id = new_conv["id"]
-
-            # Salva i messaggi nella conversazione
-            if conversation_id:
-                # Salva il messaggio utente
-                add_message(
-                    conversation_id=conversation_id,
-                    role="user",
-                    content=request.question.strip(),
-                )
-
-                # Salva il messaggio assistant con le fonti
-                # result["sources"] è già una lista di dict, non serve .dict()
-                add_message(
-                    conversation_id=conversation_id,
-                    role="assistant",
-                    content=result["answer"],
-                    sources=result["sources"] if result["sources"] else None,
-                )
-        except Exception as save_error:
-            # Se il salvataggio fallisce, continua comunque (non bloccare la chat)
-            print(f"Errore salvataggio conversazione: {save_error}")
-
-        return ChatResponse(
-            answer=result["answer"],
-            sources=result["sources"],
-            contexts_used=result["contexts_used"],
-            conversation_id=conversation_id,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore durante l'elaborazione: {e}")
+    from app.core.knowledge import get_knowledge
+    if not request.knowledge_id or not get_knowledge(request.knowledge_id):
+        raise HTTPException(status_code=404, detail="Knowledge non trovata")
+    conversation_id = request.conversation_id
+    history = []
+    if conversation_id:
+        conversation = get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversazione non trovata")
+        if conversation['knowledge_id'] != request.knowledge_id:
+            raise HTTPException(status_code=409, detail="La knowledge base della conversazione non può essere cambiata")
+        history = [{"role": m["role"], "content": m["content"]} for m in conversation['messages']]
+    # History is authoritative on the server; ignore client-supplied messages.
+    result = rag_chat(request.question.strip(), top_k=request.top_k,
+        conversation_history=history, knowledge_id=request.knowledge_id,
+        score_threshold=request.score_threshold)
+    if not conversation_id:
+        conversation_id = create_conversation(request.question.strip()[:40], request.knowledge_id)['id']
+    save_turn(conversation_id, request.question.strip(), result['answer'], result['sources'])
+    return ChatResponse(**result, conversation_id=conversation_id)

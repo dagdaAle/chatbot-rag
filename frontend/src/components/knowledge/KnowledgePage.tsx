@@ -1,3 +1,4 @@
+import { useAuthUser } from '@/auth/AuthContext';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { FileText, FolderPlus, Loader2, Plus, Trash2, Upload } from 'lucide-react';
@@ -32,7 +33,7 @@ import {
   deleteDocument,
   deleteKnowledge,
   fetchDocuments,
-  getDocumentFileUrl,
+  getPDFViewerUrl,
   uploadDocuments,
   type DocumentItem,
   type KnowledgeItem,
@@ -48,6 +49,7 @@ type Pending =
   | null;
 
 export function KnowledgePage() {
+  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
   const { knowledges, reloadKnowledges, selectedKnowledgeId, setSelectedKnowledgeId } = useApp();
   const selected = knowledges.find((k) => k.id === selectedKnowledgeId) ?? null;
 
@@ -78,7 +80,7 @@ export function KnowledgePage() {
   }, [selectedId, loadDocuments]);
 
   const upload = async (files: File[]) => {
-    if (!selected) return;
+    if (!selected || !isAdmin) return;
     const pdfs = files.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     if (pdfs.length === 0) {
       toast.error('Solo file PDF');
@@ -127,19 +129,19 @@ export function KnowledgePage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="Knowledge base">
-        <CreateKnowledgeDialog
+        {isAdmin && <CreateKnowledgeDialog
           onCreated={async (kb) => {
             await reloadKnowledges();
             setSelectedKnowledgeId(kb.id);
           }}
-        />
+        />}
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid max-w-6xl gap-6 p-4 md:grid-cols-[280px_1fr] md:p-6">
           <section aria-label="Elenco knowledge base" className="space-y-2">
             {knowledges.length === 0 && (
-              <p className="text-muted-foreground text-sm">Nessuna knowledge base. Creane una per iniziare.</p>
+              <p className="text-muted-foreground text-sm">Nessuna knowledge base disponibile.</p>
             )}
             {knowledges.map((kb) => (
               <Card
@@ -169,7 +171,7 @@ export function KnowledgePage() {
           <section aria-label="Documenti" className="min-w-0 space-y-4">
             {!selected ? (
               <div className="text-muted-foreground flex h-64 items-center justify-center rounded-xl border border-dashed text-sm">
-                Seleziona o crea una knowledge base
+                Seleziona una knowledge base
               </div>
             ) : (
               <>
@@ -180,17 +182,17 @@ export function KnowledgePage() {
                       Creata il {formatDate(selected.created_at)} · {selected.documents_count} documenti
                     </p>
                   </div>
-                  <Button
+                  {isAdmin && <Button
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:text-destructive"
                     onClick={() => setPending({ kind: 'kb', item: selected })}
                   >
                     <Trash2 /> Elimina
-                  </Button>
+                  </Button>}
                 </div>
 
-                <button
+                {isAdmin && <button
                   type="button"
                   disabled={uploading}
                   onClick={() => fileInput.current?.click()}
@@ -220,7 +222,7 @@ export function KnowledgePage() {
                   <span className="text-muted-foreground text-xs">
                     Il testo viene estratto, diviso in parti e indicizzato
                   </span>
-                </button>
+                </button>}
                 <input
                   ref={fileInput}
                   type="file"
@@ -248,7 +250,7 @@ export function KnowledgePage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <a
-                            href={getDocumentFileUrl(selected.id, doc.document_id)}
+                            href={getPDFViewerUrl({ knowledgeId: selected.id, documentId: doc.document_id, pageStart: 1, filename: doc.filename })}
                             target="_blank"
                             rel="noreferrer"
                             className="block truncate text-sm font-medium hover:underline"
@@ -259,7 +261,7 @@ export function KnowledgePage() {
                             {formatDate(doc.uploaded_at)} · {doc.chunks_count} parti
                           </p>
                         </div>
-                        <Button
+                        {isAdmin && <Button
                           variant="ghost"
                           size="icon"
                           className="size-8 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
@@ -267,7 +269,7 @@ export function KnowledgePage() {
                           onClick={() => setPending({ kind: 'doc', item: doc })}
                         >
                           <Trash2 className="size-4" />
-                        </Button>
+                        </Button>}
                       </div>
                     ))
                   )}

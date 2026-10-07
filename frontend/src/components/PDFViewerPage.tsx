@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { authFetch } from '@/auth/supabase';
 import { useSearchParams } from 'react-router-dom';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -65,6 +66,18 @@ const PDFViewerPage: React.FC = () => {
     [knowledgeId, documentId],
   );
 
+  // Fetch through the authenticated API; no JWT in URLs or PDF.js requests.
+  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    authFetch(pdfUrl, { signal: controller.signal })
+      .then(response => { if (!response.ok) throw new Error('PDF non disponibile'); return response.arrayBuffer(); })
+      .then(buffer => { if (!controller.signal.aborted) setPdfData(new Uint8Array(buffer)); })
+      .catch(() => { if (!controller.signal.aborted) { setPdfError('Impossibile caricare il PDF.'); setLoadingPdf(false); } });
+    return () => controller.abort();
+  }, [pdfUrl]);
+  const pdfFile = useMemo(() => pdfData ? { data: pdfData } : null, [pdfData]);
+
   // Frammenti di testo per l'evidenziazione
   const searchFragments = useMemo(() => buildSearchFragments(chunkText), [chunkText]);
 
@@ -94,14 +107,15 @@ const PDFViewerPage: React.FC = () => {
   // Custom text renderer per evidenziare il testo del chunk
   const customTextRenderer = useCallback(
     (textItem: { str: string; itemIndex: number }) => {
-      if (searchFragments.length === 0) return textItem.str;
+      const escaped = textItem.str.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+      if (searchFragments.length === 0) return escaped;
       const lowerStr = textItem.str.toLowerCase();
       for (const frag of searchFragments) {
         if (lowerStr.includes(frag) || frag.includes(lowerStr)) {
-          return `<mark class="pdf-highlight">${textItem.str}</mark>`;
+          return `<mark class="pdf-highlight">${escaped}</mark>`;
         }
       }
-      return textItem.str;
+      return escaped;
     },
     [searchFragments],
   );
@@ -205,9 +219,9 @@ const PDFViewerPage: React.FC = () => {
           )}
 
           {/* PDF Document */}
-          {!pdfError && (
+          {!pdfError && pdfFile && (
             <Document
-              file={pdfUrl}
+              file={pdfFile}
               onLoadSuccess={onDocumentLoadSuccess}
               onLoadError={onDocumentLoadError}
               loading={null}

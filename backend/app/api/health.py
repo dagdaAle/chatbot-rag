@@ -1,5 +1,6 @@
 """Endpoint health e readiness."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.auth import current_user
 
 from app.core.qdrant_client import get_client
 
@@ -12,7 +13,7 @@ def health_detailed() -> dict:
     return {"status": "ok", "service": "chatbot-rag-api"}
 
 
-@router.get("/qdrant")
+@router.get("/qdrant", dependencies=[Depends(current_user)])
 def health_qdrant() -> dict:
     """Verifica connettività a Qdrant."""
     try:

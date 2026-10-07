@@ -1,4 +1,6 @@
 """Endpoint per gestione impostazioni (prompt di sistema)."""
+from fastapi import Depends
+from app.auth import require_admin
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
@@ -35,7 +37,7 @@ def get_prompt() -> PromptResponse:
         raise HTTPException(status_code=500, detail=f"Errore nel recupero del prompt: {e}")
 
 
-@router.put("/prompt", response_model=PromptUpdateResponse)
+@router.put("/prompt", response_model=PromptUpdateResponse, dependencies=[Depends(require_admin)])
 def update_prompt(request: PromptUpdateRequest) -> PromptUpdateResponse:
     """Aggiorna il prompt di sistema."""
     if not request.prompt or not request.prompt.strip():
@@ -51,7 +53,7 @@ def update_prompt(request: PromptUpdateRequest) -> PromptUpdateResponse:
         raise HTTPException(status_code=500, detail=f"Errore nell'aggiornamento del prompt: {e}")
 
 
-@router.post("/prompt/reset", response_model=PromptUpdateResponse)
+@router.post("/prompt/reset", response_model=PromptUpdateResponse, dependencies=[Depends(require_admin)])
 def reset_prompt() -> PromptUpdateResponse:
     """Ripristina il prompt di sistema al valore di default."""
     try:
