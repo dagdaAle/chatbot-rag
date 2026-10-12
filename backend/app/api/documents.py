@@ -9,6 +9,7 @@ from qdrant_client.models import PointStruct
 from app.core.documents import (
     process_pdf_to_points,
     save_pdf_to_disk,
+    save_document_structure,
     delete_pdf_from_disk,
     get_upload_path,
 )
@@ -60,7 +61,7 @@ async def upload_documents(
             from app.core.usage import operation_context
             marker = operation_context.set({'knowledge_id': knowledge_id})
             try:
-                doc_id, points = await run_in_threadpool(process_pdf_to_points, content, filename)
+                doc_id, points, structure = await run_in_threadpool(process_pdf_to_points, content, filename)
             finally:
                 operation_context.reset(marker)
         except Exception as e:
@@ -74,6 +75,7 @@ async def upload_documents(
         # Compensate partial indexing failures; never publish an incomplete document row.
         try:
             await run_in_threadpool(save_pdf_to_disk, content, knowledge_id, doc_id)
+            await run_in_threadpool(save_document_structure, structure, knowledge_id, doc_id)
             for i in range(0, len(points), 100):
                 batch = [PointStruct(id=pid, vector=vec, payload=payload) for pid, vec, payload in points[i:i + 100]]
                 await run_in_threadpool(client.upsert, collection_name=collection_name, points=batch)
@@ -82,10 +84,12 @@ async def upload_documents(
                 'filename': filename, 'chunks_count': len(points), 'size_bytes': len(content)})
         except Exception:
             from qdrant_client import models
-            await run_in_threadpool(client.delete, collection_name=collection_name,
-                points_selector=models.FilterSelector(filter=models.Filter(must=[models.FieldCondition(
-                    key='document_id', match=models.MatchValue(value=doc_id))])))
-            delete_pdf_from_disk(knowledge_id, doc_id)
+            try:
+                await run_in_threadpool(client.delete, collection_name=collection_name,
+                    points_selector=models.FilterSelector(filter=models.Filter(must=[models.FieldCondition(
+                        key='document_id', match=models.MatchValue(value=doc_id))])))
+            finally:
+                delete_pdf_from_disk(knowledge_id, doc_id)
             raise
 
         results.append({
@@ -93,6 +97,7 @@ async def upload_documents(
             "filename": filename,
             "chunks_count": len(points),
             "status": "uploaded",
+            "extractor": structure["extractor"],
         })
 
     # Aggiorna conteggio documenti nella knowledge

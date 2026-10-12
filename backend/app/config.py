@@ -3,6 +3,8 @@ from pydantic_settings import BaseSettings
 from pathlib import Path
 import os
 import json
+from typing import Literal
+from pydantic import Field
 
 DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent.parent / "data")))
 
@@ -20,6 +22,11 @@ class Settings(BaseSettings):
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+
+    pdf_extractor: Literal["docling", "pypdf"] = "docling"
+    pdf_max_pages: int = Field(default=300, ge=1, le=2000)
+    pdf_conversion_timeout: float = Field(default=180, gt=0, le=1800)
+    docling_artifacts_path: str = ""
     
     # Provider LLM: "openai" o "ollama"
     llm_provider: str = "deepseek"

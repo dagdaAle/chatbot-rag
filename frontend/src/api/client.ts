@@ -122,6 +122,9 @@ export interface ChatSource {
   document_id: string;
   page_start: number;
   page_end: number;
+  section_path?: string[];
+  source_regions?: Array<{ item_ref: string; page: number; bbox?: { l: number; t: number; r: number; b: number; coord_origin: string } }>;
+  content_kind?: string;
 }
 
 /**

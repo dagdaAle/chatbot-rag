@@ -260,6 +260,9 @@ def retrieve_context(
             "chunk_index": payload.get("chunk_index", 0),
             "page_start": payload.get("page_start", 1),
             "page_end": payload.get("page_end", 1),
+            "section_path": payload.get("section_path", []),
+            "source_regions": payload.get("source_regions", []),
+            "content_kind": payload.get("content_kind", "text"),
             "score": hit.score,
         })
     return contexts
@@ -360,6 +363,9 @@ def chat(
             "document_id": ctx["document_id"],
             "page_start": ctx.get("page_start", 1),
             "page_end": ctx.get("page_end", 1),
+            "section_path": ctx.get("section_path", []),
+            "source_regions": ctx.get("source_regions", []),
+            "content_kind": ctx.get("content_kind", "text"),
         })
 
     return {

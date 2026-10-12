@@ -3,7 +3,7 @@ import io
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from app.config import DATA_DIR
+from app.config import DATA_DIR, settings
 
 from pypdf import PdfReader
 
@@ -14,6 +14,17 @@ CHUNK_OVERLAP = 250
 
 # Directory base per salvare i PDF originali
 UPLOADS_DIR = DATA_DIR / "uploads"
+EXTRACTED_DIR = DATA_DIR / "extracted"
+
+
+def get_structure_path(knowledge_id: str, document_id: str) -> Path:
+    from app.core.supabase import identifier
+    return EXTRACTED_DIR / identifier(knowledge_id) / f"{identifier(document_id)}.json"
+
+
+def save_document_structure(structure: dict, knowledge_id: str, document_id: str) -> None:
+    from app.core.storage import write_json
+    write_json(get_structure_path(knowledge_id, document_id), structure)
 
 
 def get_upload_path(knowledge_id: str, document_id: str) -> Path:
@@ -32,22 +43,18 @@ def save_pdf_to_disk(content: bytes, knowledge_id: str, document_id: str) -> Pat
 
 def delete_pdf_from_disk(knowledge_id: str, document_id: str) -> None:
     """Elimina il PDF originale dal disco."""
-    path = get_upload_path(knowledge_id, document_id)
-    try:
+    for path in (get_upload_path(knowledge_id, document_id), get_structure_path(knowledge_id, document_id)):
         path.unlink(missing_ok=True)
-    except Exception:
-        pass
 
 
 def delete_knowledge_pdfs(knowledge_id: str) -> None:
     """Elimina tutti i PDF di una knowledge dal disco."""
-    folder = UPLOADS_DIR / knowledge_id
-    if folder.exists():
-        import shutil
-        try:
+    from app.core.supabase import identifier
+    import shutil
+    for root in (UPLOADS_DIR, EXTRACTED_DIR):
+        folder = root / identifier(knowledge_id)
+        if folder.exists():
             shutil.rmtree(folder)
-        except Exception:
-            pass
 
 
 def extract_text_by_page(content: bytes) -> list[str]:
@@ -147,28 +154,49 @@ def _offset_to_page(offset: int, page_ranges: list[tuple[int, int, int]]) -> int
 def process_pdf_to_points(
     content: bytes,
     filename: str,
-) -> tuple[str, list[tuple[str, list[float], dict]]]:
+) -> tuple[str, list[tuple[str, list[float], dict]], dict]:
     """
-    Processa un PDF e restituisce (document_id, lista di (id, vector, payload)).
-    Ogni chunk contiene anche page_start e page_end.
+    Restituisce document_id, punti e struttura da persistere con il PDF originale.
+    I PDF già indicizzati restano leggibili senza migrazioni.
     """
     doc_id = str(uuid.uuid4())
     uploaded_at = datetime.now(timezone.utc).isoformat()
 
-    pages = extract_text_by_page(content)
-    chunks = chunk_text_with_pages(pages)
+    if settings.pdf_extractor == "docling":
+        from app.core.pdf_extraction import extract_structured_pdf, chunk_structured_document
+        structure = extract_structured_pdf(content)
+        chunks = chunk_structured_document(structure)
+    else:
+        from importlib.metadata import version
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(content))
+        if len(reader.pages) > settings.pdf_max_pages:
+            raise ValueError(f"PDF troppo lungo: massimo {settings.pdf_max_pages} pagine")
+        # The explicitly selected legacy mode must not hide page extraction errors.
+        pages = [page.extract_text() or "" for page in reader.pages]
+        chunks = chunk_text_with_pages(pages)
+        structure = {"schema_version": 1, "extractor": "pypdf",
+                     "extractor_version": version("pypdf"), "pages": pages}
 
     if not chunks:
-        return doc_id, []
+        return doc_id, [], structure
+
+    for chunk in chunks:
+        chunk.setdefault("extractor", structure["extractor"])
+        chunk.setdefault("extractor_version", structure["extractor_version"])
+        chunk.setdefault("extraction_schema_version", structure["schema_version"])
 
     # Genera embedding per tutti i chunk
     texts = [c["text"] for c in chunks]
     embeddings = get_embeddings_batch(texts)
+    if len(embeddings) != len(chunks):
+        raise ValueError("Embedding incompleti: documento non indicizzato.")
 
     points = []
     for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
         point_id = str(uuid.uuid4())
         payload = {
+            **chunk,
             "document_id": doc_id,
             "filename": filename,
             "uploaded_at": uploaded_at,
@@ -178,4 +206,4 @@ def process_pdf_to_points(
             "page_end": chunk["page_end"],
         }
         points.append((point_id, vector, payload))
-    return doc_id, points
+    return doc_id, points, structure

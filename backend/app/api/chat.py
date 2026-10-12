@@ -39,6 +39,9 @@ class SourceItem(BaseModel):
     document_id: str = ""
     page_start: int = 1
     page_end: int = 1
+    section_path: list[str] = Field(default_factory=list)
+    source_regions: list[dict] = Field(default_factory=list)
+    content_kind: str = "text"
 
 
 class ChatResponse(BaseModel):
