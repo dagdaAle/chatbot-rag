@@ -42,6 +42,7 @@ class SourceItem(BaseModel):
     section_path: list[str] = Field(default_factory=list)
     source_regions: list[dict] = Field(default_factory=list)
     content_kind: str = "text"
+    retrieval_method: str = "semantic_legacy"
 
 
 class ChatResponse(BaseModel):

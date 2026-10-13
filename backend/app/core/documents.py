@@ -10,6 +10,7 @@ from app.config import DATA_DIR, settings
 from pypdf import PdfReader
 
 from app.core.embeddings import get_embeddings_batch
+from app.core.lexical import LEXICAL_INDEX_VERSION, hybrid_vector
 
 CHUNK_SIZE = 2000  # chunk più grandi per più contesto
 CHUNK_OVERLAP = 250
@@ -184,7 +185,7 @@ def process_pdf_to_points(
     filename: str,
     progress=None,
     document_id: str | None = None,
-) -> tuple[str, list[tuple[str, list[float], dict]], dict]:
+) -> tuple[str, list[tuple[str, dict[str, object], dict]], dict]:
     """
     Restituisce document_id, punti e struttura da persistere con il PDF originale.
     I PDF già indicizzati restano leggibili senza migrazioni.
@@ -240,6 +241,7 @@ def process_pdf_to_points(
             "text": chunk["text"],
             "page_start": chunk["page_start"],
             "page_end": chunk["page_end"],
+            "lexical_index_version": LEXICAL_INDEX_VERSION,
         }
-        points.append((point_id, vector, payload))
+        points.append((point_id, hybrid_vector(vector, chunk["text"]), payload))
     return doc_id, points, structure

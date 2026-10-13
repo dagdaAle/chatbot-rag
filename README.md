@@ -11,7 +11,8 @@ Chatbot RAG avanzato con supporto per documenti PDF, chunking semantico e divers
 ## Caratteristiche
 
 - **Chunking intelligente**: 2000 caratteri con overlap 250, divisione semantica su paragrafi e frasi
-- **Ricerca avanzata**: MMR (Maximum Marginal Relevance) per diversità nei risultati
+- **Ricerca ibrida**: embedding semantici + indice lessicale IDF, fusi con RRF; codici e numeri di atto ricevono un segnale esatto aggiuntivo
+- **Risultati diversificati**: MMR (Maximum Marginal Relevance) riduce i chunk duplicati
 - **Provider multipli**: supporto per OpenAI e Ollama
 - **Filtro per score**: filtraggio automatico di chunk poco rilevanti
 - **Citazioni precise**: risposte con citazioni verbatim dai documenti
@@ -101,10 +102,14 @@ OLLAMA_BASE_URL=http://host.docker.internal:11434
 - Upload PDF: massimo 20 MB per file. Il PDF viene salvato sul volume e messo nella
   coda persistente Supabase; il worker Docling locale gestisce struttura, tabelle e OCR.
   Stato, avanzamento e nuovo tentativo sono visibili nella pagina Knowledge base.
-- Il retrieval mantiene la soglia di rilevanza e include le ultime due domande;
+- Il retrieval ibrido applica la soglia al ramo semantico e fonde con RRF il ramo
+  lessicale; include le ultime due domande;
   non è una riscrittura della query tramite LLM. Cronologia: massimo 12 messaggi
   e 16000 caratteri. Le fonti recuperate non costituiscono una validazione delle
   singole affermazioni generate.
+- Le collezioni create da questa versione includono l'indice lessicale. Le collezioni
+  precedenti restano leggibili in modalità semantica, ma devono essere migrate prima
+  di nuovi import seguendo [docs/HYBRID_SEARCH.md](docs/HYBRID_SEARCH.md).
 
 Test backend (virtualenv, dipendenze in `backend/requirements.txt` + pytest/httpx):
 

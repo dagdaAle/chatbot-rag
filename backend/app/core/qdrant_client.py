@@ -24,12 +24,34 @@ class LockedLocalClient:
         return call
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import (
+    Distance,
+    Modifier,
+    SparseIndexParams,
+    SparseVectorParams,
+    VectorParams,
+)
 
 from app.config import settings
 from app.core.embeddings import get_current_embedding_size
+from app.core.lexical import LEXICAL_VECTOR_NAME
 
 COLLECTION_NAME = "documents"
+
+
+def sparse_vectors_config() -> dict[str, SparseVectorParams]:
+    return {
+        LEXICAL_VECTOR_NAME: SparseVectorParams(
+            index=SparseIndexParams(on_disk=False),
+            modifier=Modifier.IDF,
+        )
+    }
+
+
+def collection_supports_hybrid(client: QdrantClient, collection_name: str) -> bool:
+    info = client.get_collection(collection_name)
+    sparse = info.config.params.sparse_vectors or {}
+    return LEXICAL_VECTOR_NAME in sparse
 
 
 @lru_cache(maxsize=1)
@@ -61,14 +83,20 @@ def ensure_collection_for_kb(
     if existing is not None:
         info = client.get_collection(collection_name)
         current_size = info.config.params.vectors.size
-        if current_size == vector_size:
-            return
-        raise ValueError("Il modello embedding non è compatibile con questa knowledge base. "
-                         "Crea una nuova knowledge base e reindicizza i documenti; nessun indice è stato cancellato.")
+        if current_size != vector_size:
+            raise ValueError("Il modello embedding non è compatibile con questa knowledge base. "
+                             "Crea una nuova knowledge base e reindicizza i documenti; nessun indice è stato cancellato.")
+        if not collection_supports_hybrid(client, collection_name):
+            raise ValueError(
+                "Questa knowledge base usa ancora l'indice semantico precedente. "
+                "Esegui la migrazione ibrida prima di importare nuovi documenti."
+            )
+        return
 
     client.create_collection(
         collection_name=collection_name,
         vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        sparse_vectors_config=sparse_vectors_config(),
     )
 
 
@@ -97,4 +125,5 @@ def reset_collection(client: QdrantClient) -> None:
     client.create_collection(
         collection_name=COLLECTION_NAME,
         vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        sparse_vectors_config=sparse_vectors_config(),
     )

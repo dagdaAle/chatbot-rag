@@ -65,6 +65,9 @@ starting this worker in Coolify:
 5. mount the existing application data volume at `/data` in both resources;
 6. apply the import-jobs migration, then start one worker.
 
+Before accepting new uploads, migrate the restored dense collections to the hybrid
+schema with the stopped API/worker procedure in [HYBRID_SEARCH.md](HYBRID_SEARCH.md).
+
 Do not point the worker at the live embedded directory. Deployment and migration of
 production Qdrant are deliberately separate from merging this code branch.
 

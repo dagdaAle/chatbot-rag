@@ -149,6 +149,7 @@ export interface ChatSource {
   section_path?: string[];
   source_regions?: Array<{ item_ref: string; page: number; bbox?: { l: number; t: number; r: number; b: number; coord_origin: string } }>;
   content_kind?: string;
+  retrieval_method?: 'hybrid_rrf' | 'semantic_legacy';
 }
 
 /**

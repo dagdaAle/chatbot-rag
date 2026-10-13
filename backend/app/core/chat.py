@@ -9,7 +9,8 @@ from openai import OpenAI
 
 from app.config import settings, runtime_config
 from app.core.embeddings import get_query_embedding
-from app.core.qdrant_client import COLLECTION_NAME, get_client
+from app.core.qdrant_client import COLLECTION_NAME, collection_supports_hybrid, get_client
+from app.core.lexical import LEXICAL_VECTOR_NAME, sparse_text_vector
 from app.core.knowledge import get_collection_name, get_knowledge
 from app.core.ollama_client import generate_chat_response as ollama_generate_chat_response
 
@@ -186,8 +187,9 @@ def retrieve_context(
     knowledge_id: str | None = None,
     score_threshold: float = 0.3,
     use_mmr: bool = True,
+    lexical_query: str | None = None,
 ) -> list[dict]:
-    """Cerca i chunk più rilevanti in Qdrant con MMR e score filtering.
+    """Cerca chunk con fusione semantica/lessicale e diversificazione MMR.
 
     Se knowledge_id è fornito cerca nella collezione della knowledge,
     altrimenti usa la collezione legacy.
@@ -206,18 +208,58 @@ def retrieve_context(
     if not any(c.name == collection_name for c in collections):
         return []
 
-    # Recupera più risultati per permettere MMR e filtering
+    # Recupera più risultati per permettere fusione e MMR.
     search_limit = max(top_k * 2, 24)  # Almeno il doppio per avere scelta
-    results = client.search(
-        collection_name=collection_name,
-        query_vector=query_vector,
-        limit=search_limit,
-        with_payload=True,
-        with_vectors=use_mmr,  # Serve per MMR
-    )
+    try:
+        hybrid_enabled = collection_supports_hybrid(client, collection_name)
+    except (AttributeError, ValueError):
+        hybrid_enabled = False
 
-    # Filtra per score_threshold
-    filtered_results = [hit for hit in results if hit.score >= score_threshold]
+    if hybrid_enabled:
+        from qdrant_client import models
+        sparse_query = sparse_text_vector(lexical_query or query)
+        prefetch = [models.Prefetch(
+            query=query_vector,
+            limit=search_limit,
+            score_threshold=score_threshold,
+        )]
+        if sparse_query.indices:
+            prefetch.append(models.Prefetch(
+                query=sparse_query,
+                using=LEXICAL_VECTOR_NAME,
+                limit=search_limit,
+            ))
+        if len(prefetch) == 1:
+            response = client.query_points(
+                collection_name=collection_name,
+                query=query_vector,
+                limit=search_limit,
+                score_threshold=score_threshold,
+                with_payload=True,
+                with_vectors=use_mmr,
+            )
+        else:
+            response = client.query_points(
+                collection_name=collection_name,
+                prefetch=prefetch,
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                limit=search_limit,
+                with_payload=True,
+                with_vectors=use_mmr,
+            )
+        filtered_results = response.points
+        retrieval_method = "hybrid_rrf"
+    else:
+        # Compatibilità di sola lettura durante la migrazione degli indici esistenti.
+        results = client.search(
+            collection_name=collection_name,
+            query_vector=query_vector,
+            limit=search_limit,
+            with_payload=True,
+            with_vectors=use_mmr,
+        )
+        filtered_results = [hit for hit in results if hit.score >= score_threshold]
+        retrieval_method = "semantic_legacy"
 
     if not filtered_results:
         return []
@@ -225,15 +267,17 @@ def retrieve_context(
     # Applica MMR se richiesto e abbiamo abbastanza risultati
     if use_mmr and len(filtered_results) > top_k:
         try:
-            # Estrai vettori e score
-            vectors = []
-            scores = []
+            candidates = []
             for hit in filtered_results:
-                if hit.vector:
-                    vectors.append(hit.vector)
-                    scores.append(hit.score)
+                vector = hit.vector
+                if isinstance(vector, dict):
+                    vector = vector.get("")
+                if vector:
+                    candidates.append((hit, vector))
 
-            if vectors:
+            if candidates:
+                vectors = [vector for _, vector in candidates]
+                scores = [hit.score for hit, _ in candidates]
                 # Applica MMR
                 selected_indices = []
                 for _ in range(min(top_k, len(vectors))):
@@ -242,7 +286,9 @@ def retrieve_context(
                         selected_indices.append(next_idx)
 
                 # Riordina i risultati secondo MMR
-                filtered_results = [filtered_results[i] for i in selected_indices]
+                filtered_results = [candidates[i][0] for i in selected_indices]
+            else:
+                filtered_results = filtered_results[:top_k]
         except Exception:
             # Fallback a selezione normale in caso di errore MMR
             filtered_results = filtered_results[:top_k]
@@ -264,6 +310,7 @@ def retrieve_context(
             "source_regions": payload.get("source_regions", []),
             "content_kind": payload.get("content_kind", "text"),
             "score": hit.score,
+            "retrieval_method": retrieval_method,
         })
     return contexts
 
@@ -346,7 +393,13 @@ def chat(
             break
     previous_questions = [m["content"] for m in history if m.get("role") == "user"][-2:]
     retrieval_query = "\n".join(previous_questions + [question])
-    contexts = retrieve_context(retrieval_query, top_k=top_k, knowledge_id=knowledge_id, score_threshold=score_threshold)
+    contexts = retrieve_context(
+        retrieval_query,
+        top_k=top_k,
+        knowledge_id=knowledge_id,
+        score_threshold=score_threshold,
+        lexical_query=question,
+    )
 
     # Genera la risposta
     answer = generate_response(question, contexts, history, provider=provider, model=model)
@@ -366,6 +419,7 @@ def chat(
             "section_path": ctx.get("section_path", []),
             "source_regions": ctx.get("source_regions", []),
             "content_kind": ctx.get("content_kind", "text"),
+            "retrieval_method": ctx.get("retrieval_method", "semantic_legacy"),
         })
 
     return {

@@ -56,8 +56,11 @@ export function SourceList({
                   <HoverCardContent className="w-96" align="start">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <p className="truncate text-sm font-medium">{s.filename}</p>
-                      <Badge variant="secondary" title="Similarità con la domanda">
-                        {Math.round(s.score * 100)}%
+                      <Badge
+                        variant="secondary"
+                        title={s.retrieval_method === 'hybrid_rrf' ? 'Risultato da ricerca semantica e lessicale' : 'Similarità con la domanda'}
+                      >
+                        {s.retrieval_method === 'hybrid_rrf' ? 'Ibrida' : `${Math.round(s.score * 100)}%`}
                       </Badge>
                     </div>
                     <p className="text-muted-foreground line-clamp-[10] text-xs leading-relaxed whitespace-pre-line">
