@@ -1,5 +1,7 @@
 """Estrazione testo da PDF, chunking e preparazione punti per Qdrant."""
 import io
+import os
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +17,7 @@ CHUNK_OVERLAP = 250
 # Directory base per salvare i PDF originali
 UPLOADS_DIR = DATA_DIR / "uploads"
 EXTRACTED_DIR = DATA_DIR / "extracted"
+IMPORTS_DIR = DATA_DIR / "imports"
 
 
 def get_structure_path(knowledge_id: str, document_id: str) -> Path:
@@ -25,6 +28,31 @@ def get_structure_path(knowledge_id: str, document_id: str) -> Path:
 def save_document_structure(structure: dict, knowledge_id: str, document_id: str) -> None:
     from app.core.storage import write_json
     write_json(get_structure_path(knowledge_id, document_id), structure)
+
+
+def get_import_path(knowledge_id: str, job_id: str) -> Path:
+    from app.core.supabase import identifier
+    return IMPORTS_DIR / identifier(knowledge_id) / f"{identifier(job_id)}.pdf"
+
+
+def save_import_pdf(content: bytes, knowledge_id: str, job_id: str) -> Path:
+    path = get_import_path(knowledge_id, job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, pending = tempfile.mkstemp(dir=path.parent, prefix=".pending-", suffix=".pdf")
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(pending, path)
+    finally:
+        if os.path.exists(pending):
+            os.unlink(pending)
+    return path
+
+
+def delete_import_pdf(knowledge_id: str, job_id: str) -> None:
+    get_import_path(knowledge_id, job_id).unlink(missing_ok=True)
 
 
 def get_upload_path(knowledge_id: str, document_id: str) -> Path:
@@ -51,7 +79,7 @@ def delete_knowledge_pdfs(knowledge_id: str) -> None:
     """Elimina tutti i PDF di una knowledge dal disco."""
     from app.core.supabase import identifier
     import shutil
-    for root in (UPLOADS_DIR, EXTRACTED_DIR):
+    for root in (UPLOADS_DIR, EXTRACTED_DIR, IMPORTS_DIR):
         folder = root / identifier(knowledge_id)
         if folder.exists():
             shutil.rmtree(folder)
@@ -154,14 +182,18 @@ def _offset_to_page(offset: int, page_ranges: list[tuple[int, int, int]]) -> int
 def process_pdf_to_points(
     content: bytes,
     filename: str,
+    progress=None,
+    document_id: str | None = None,
 ) -> tuple[str, list[tuple[str, list[float], dict]], dict]:
     """
     Restituisce document_id, punti e struttura da persistere con il PDF originale.
     I PDF già indicizzati restano leggibili senza migrazioni.
     """
-    doc_id = str(uuid.uuid4())
+    doc_id = document_id or str(uuid.uuid4())
     uploaded_at = datetime.now(timezone.utc).isoformat()
 
+    if progress:
+        progress("extracting", 10)
     if settings.pdf_extractor == "docling":
         from app.core.pdf_extraction import extract_structured_pdf, chunk_structured_document
         structure = extract_structured_pdf(content)
@@ -187,10 +219,14 @@ def process_pdf_to_points(
         chunk.setdefault("extraction_schema_version", structure["schema_version"])
 
     # Genera embedding per tutti i chunk
+    if progress:
+        progress("embedding", 55, structure)
     texts = [c["text"] for c in chunks]
     embeddings = get_embeddings_batch(texts)
     if len(embeddings) != len(chunks):
         raise ValueError("Embedding incompleti: documento non indicizzato.")
+    if progress:
+        progress("indexing", 78, structure, len(chunks))
 
     points = []
     for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):

@@ -17,6 +17,8 @@ modificare gli app_metadata non aggiorna più il ruolo applicativo corrente.
    a un utente. L'importazione è esplicita (vedi sotto).
 2. Eseguire una sola volta `supabase/migrations/202610070001_chatbot.sql` come
    amministratore del database (SQL editor di Studio oppure psql interno).
+   Per le funzionalità successive applicare, nello stesso ordine,
+   `202610070002_admin_usage.sql` e `202610130001_import_jobs.sql`.
 3. Assegnare il ruolo amministratore dell'app all'utente previsto:
 
 ```sql

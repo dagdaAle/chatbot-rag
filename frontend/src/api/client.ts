@@ -68,24 +68,48 @@ export interface DocumentItem {
   chunks_count: number;
 }
 
+export type ImportJobStatus = 'queued' | 'running' | 'failed';
+export type ImportJobStage = 'queued' | 'extracting' | 'embedding' | 'indexing' | 'publishing' | 'failed';
+
+export interface ImportJobItem {
+  id: string;
+  document_id: string;
+  knowledge_id: string;
+  filename: string;
+  size_bytes: number;
+  status: ImportJobStatus;
+  stage: ImportJobStage;
+  progress: number;
+  attempts: number;
+  max_attempts: number;
+  last_error_code?: string | null;
+  last_error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface UploadResult {
-  uploaded: {
-    document_id: string;
-    filename: string;
-    chunks_count: number;
-    status: string;
-  }[];
+  jobs: ImportJobItem[];
   errors: {
     filename: string;
     error: string;
   }[];
-  total_uploaded: number;
+  total_queued: number;
   total_errors: number;
 }
 
-export async function fetchDocuments(knowledgeId: string): Promise<{ documents: DocumentItem[]; total: number }> {
+export async function fetchDocuments(knowledgeId: string): Promise<{ documents: DocumentItem[]; jobs: ImportJobItem[]; total: number }> {
   const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/documents`);
   if (!res.ok) throw new Error('Errore caricamento documenti');
+  return res.json();
+}
+
+export async function retryImport(knowledgeId: string, jobId: string): Promise<{ job_id: string; status: string }> {
+  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/imports/${jobId}/retry`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
+  }
   return res.json();
 }
 

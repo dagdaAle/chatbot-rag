@@ -44,6 +44,37 @@ services:
     networks:
       - chatbot-net
 
+  import-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.worker"]
+    container_name: chatbot-import-worker
+    volumes:
+      - backend_data:/app/data
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - DATA_DIR=/app/data
+      - PDF_EXTRACTOR=${PDF_EXTRACTOR:-docling}
+      - PDF_MAX_PAGES=${PDF_MAX_PAGES:-300}
+      - PDF_CONVERSION_TIMEOUT=${PDF_CONVERSION_TIMEOUT:-180}
+      - IMPORT_WORKER_POLL_SECONDS=${IMPORT_WORKER_POLL_SECONDS:-3}
+      - IMPORT_WORKER_LEASE_SECONDS=${IMPORT_WORKER_LEASE_SECONDS:-600}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_EMBEDDING_API_KEY=${OPENAI_EMBEDDING_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - SUPABASE_URL=${SUPABASE_URL:-https://supabase.intecha.dev}
+      - SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV}
+      - SUPABASE_ADMIN_KEY=${SUPABASE_ADMIN_KEY:-}
+    depends_on:
+      - qdrant
+    restart: on-failure
+    networks:
+      - chatbot-net
+
   frontend:
     build:
       context: ./frontend

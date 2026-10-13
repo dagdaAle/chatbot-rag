@@ -9,17 +9,21 @@ create table auth.sessions(id uuid primary key default gen_random_uuid(),user_id
 create table auth.refresh_tokens(id bigint generated always as identity,user_id text);
 create function auth.uid() returns uuid language sql stable as $$ select (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid $$;
 create function auth.jwt() returns jsonb language sql stable as $$ select nullif(current_setting('request.jwt.claims',true),'')::jsonb $$;
+create function auth.role() returns text language sql stable as $$ select nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'role' $$;
 grant usage on schema auth to authenticated,service_role;`);
 await db.exec(await readFile(new URL('../migrations/202610070001_chatbot.sql',import.meta.url),'utf8'));
 const a='00000000-0000-0000-0000-000000000001', b='00000000-0000-0000-0000-000000000002', c='00000000-0000-0000-0000-000000000003';
 await db.query(`insert into auth.users(id,email,raw_app_meta_data) values($1,'admin@test.it','{"chatbot_role":"admin"}'),($2,'user@test.it','{}'),($3,'manager@test.it','{}')`,[a,b,c]);
 await db.exec(await readFile(new URL('../migrations/202610070002_admin_usage.sql',import.meta.url),'utf8'));
+await db.exec(await readFile(new URL('../migrations/202610130001_import_jobs.sql',import.meta.url),'utf8'));
 async function asUser(id, claims={}) { await db.exec('reset role');await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:id,iat:Math.floor(Date.now()/1000),...claims})]);await db.exec('set role authenticated'); }
 async function save(kind,target,payload) { return db.query('select public.chatbot_admin_save($1,$2,$3)',[kind,target,JSON.stringify(payload)]); }
 const profile=(role,active=true) => ({display_name:'Test',role,active,monthly_requests:2,requests_per_minute:20,concurrent_requests:1});
 await asUser(a);
 const kb=(await db.query("insert into public.knowledge_bases(name) values('Shared') returning id")).rows[0].id;
 await db.query("insert into public.documents(knowledge_id,filename,chunks_count) values($1,'test.pdf',1)",[kb]);
+const jobId='10000000-0000-0000-0000-000000000001', documentId='20000000-0000-0000-0000-000000000001';
+await db.query("insert into public.import_jobs(id,document_id,knowledge_id,filename,size_bytes) values($1,$2,$3,'queued.pdf',3)",[jobId,documentId,kb]);
 const conv=(await db.query("insert into public.conversations(title,knowledge_id) values('Private',$1) returning id",[kb])).rows[0].id;
 await db.query("select public.save_chat_turn($1,'q','a','[]')",[conv]);
 await asUser(b,{app_metadata:{chatbot_role:'admin'}});
@@ -50,6 +54,11 @@ await asUser(b);assert.equal((await db.query("select * from public.app_models wh
 await asUser(c);assert.equal((await db.query("select * from public.app_models where key='ollama:test'")).rows.length,0);
 await asUser(a);await save('profile',b,profile('user'));await save('knowledge',kb,{shared:false,members:[{user_id:b}]});
 await db.exec('reset role; set role service_role');
+await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({role:'service_role'})]);
+const claimed=(await db.query("select * from public.chatbot_claim_import_job('worker-1',600)")).rows[0];
+assert.equal(claimed.id,jobId);assert.equal(claimed.status,'running');assert.equal(claimed.attempts,1);
+assert.equal((await db.query("select public.chatbot_update_import_job($1,'wrong-worker','running','embedding',55,null,null,null,null,null,600) as changed",[jobId])).rows[0].changed,false);
+assert.equal((await db.query("select public.chatbot_update_import_job($1,'worker-1','failed','failed',100,null,null,null,'TestError','safe failure',600) as changed",[jobId])).rows[0].changed,true);
 const req=(await db.query('select public.chatbot_reserve_request($1,$2,null) as id',[b,kb])).rows[0].id;
 await assert.rejects(db.query('select public.chatbot_reserve_request($1,$2,null)',[b,kb]));
 await db.query("update public.usage_events set status='success' where id=$1",[req]);
@@ -66,5 +75,12 @@ assert.equal((await db.query('select * from public.app_models')).rows.length,0);
 await asUser(a);await save('profile',b,profile('user'));await save('revoke_sessions',b,{});await asUser(b);
 assert.equal((await db.query('select public.chatbot_role() as role')).rows[0].role,null);
 await asUser(a);assert.ok((await db.query('select * from public.admin_audit')).rows.length>0);
-await db.exec('reset role; set role anon');for(const table of ['app_profiles','usage_events','admin_audit','knowledge_members','app_models','model_members']) await assert.rejects(db.query(`select * from public.${table}`));
+assert.equal((await db.query('select public.chatbot_retry_import_job($1) as changed',[jobId])).rows[0].changed,true);
+assert.equal((await db.query('select status from public.import_jobs where id=$1',[jobId])).rows[0].status,'queued');
+await db.exec('reset role');await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({role:'service_role'})]);await db.exec('set role service_role');
+assert.equal((await db.query("select attempts from public.chatbot_claim_import_job('worker-2',60)")).rows[0].attempts,1);
+await db.query("update public.import_jobs set attempts=max_attempts,lease_expires_at=now()-interval '1 second' where id=$1",[jobId]);
+assert.equal((await db.query("select * from public.chatbot_claim_import_job('worker-3',60)")).rows.length,0);
+assert.equal((await db.query('select status from public.import_jobs where id=$1',[jobId])).rows[0].status,'failed');
+await db.exec('reset role; set role anon');for(const table of ['app_profiles','usage_events','admin_audit','knowledge_members','app_models','model_members','import_jobs']) await assert.rejects(db.query(`select * from public.${table}`));
 await db.close();console.log('Admin RLS passed: live roles, KB isolation, manager scope, model ACL, last admin, accounting permissions, quotas, suspension and session revocation.');

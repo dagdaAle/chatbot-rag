@@ -1,21 +1,21 @@
-"""Endpoint upload, list, download e delete documenti per Knowledge Base."""
+"""PDF upload queue, status, download and deletion for knowledge bases."""
+import uuid
 from fastapi import Depends
 from app.auth import require_kb_manager
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from starlette.concurrency import run_in_threadpool
-from qdrant_client.models import PointStruct
 
 from app.core.documents import (
-    process_pdf_to_points,
-    save_pdf_to_disk,
-    save_document_structure,
+    save_import_pdf,
+    delete_import_pdf,
+    get_import_path,
     delete_pdf_from_disk,
     get_upload_path,
 )
-from app.core.knowledge import get_knowledge, get_collection_name, update_documents_count
-from app.core.qdrant_client import get_client, ensure_collection_for_kb
+from app.core.knowledge import get_knowledge, get_collection_name
+from app.core.qdrant_client import get_client
 from app.core.supabase import rest, identifier
+from app.auth import request_user
 
 router = APIRouter(prefix="/api/knowledge", tags=["documents"])
 
@@ -25,7 +25,7 @@ async def upload_documents(
     knowledge_id: str,
     files: list[UploadFile] = File(...),
 ) -> dict:
-    """Carica uno o più PDF in una Knowledge Base."""
+    """Persist PDF bytes and enqueue imports; conversion happens in the worker."""
     kb = get_knowledge(knowledge_id)
     if kb is None:
         raise HTTPException(status_code=404, detail="Knowledge non trovata")
@@ -33,14 +33,7 @@ async def upload_documents(
     if not files:
         raise HTTPException(status_code=400, detail="Nessun file fornito")
 
-    collection_name = get_collection_name(knowledge_id)
-    client = get_client()
-    try:
-        ensure_collection_for_kb(client, collection_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-
-    results = []
+    jobs = []
     errors = []
 
     for file in files:
@@ -57,57 +50,29 @@ async def upload_documents(
             continue
 
         filename = file.filename or "documento.pdf"
+        job_id, doc_id = str(uuid.uuid4()), str(uuid.uuid4())
+        created = None
         try:
-            from app.core.usage import operation_context
-            marker = operation_context.set({'knowledge_id': knowledge_id})
+            save_import_pdf(content, knowledge_id, job_id)
             try:
-                doc_id, points, structure = await run_in_threadpool(process_pdf_to_points, content, filename)
+                created = rest("POST", "import_jobs", body={
+                    "id": job_id, "document_id": doc_id, "knowledge_id": identifier(knowledge_id),
+                    "created_by": request_user.get().id, "filename": filename, "size_bytes": len(content),
+                })
             finally:
-                operation_context.reset(marker)
-        except Exception as e:
-            errors.append({"filename": filename, "error": f"Errore elaborazione: {e}"})
-            continue
-
-        if not points:
-            errors.append({"filename": filename, "error": "Nessun testo estratto dal PDF"})
-            continue
-
-        # Compensate partial indexing failures; never publish an incomplete document row.
-        try:
-            await run_in_threadpool(save_pdf_to_disk, content, knowledge_id, doc_id)
-            await run_in_threadpool(save_document_structure, structure, knowledge_id, doc_id)
-            for i in range(0, len(points), 100):
-                batch = [PointStruct(id=pid, vector=vec, payload=payload) for pid, vec, payload in points[i:i + 100]]
-                await run_in_threadpool(client.upsert, collection_name=collection_name, points=batch)
-            await run_in_threadpool(rest, 'POST', 'documents', body={
-                'document_id': doc_id, 'knowledge_id': identifier(knowledge_id),
-                'filename': filename, 'chunks_count': len(points), 'size_bytes': len(content)})
-        except Exception:
-            from qdrant_client import models
-            try:
-                await run_in_threadpool(client.delete, collection_name=collection_name,
-                    points_selector=models.FilterSelector(filter=models.Filter(must=[models.FieldCondition(
-                        key='document_id', match=models.MatchValue(value=doc_id))])))
-            finally:
-                delete_pdf_from_disk(knowledge_id, doc_id)
-            raise
-
-        results.append({
-            "document_id": doc_id,
-            "filename": filename,
-            "chunks_count": len(points),
-            "status": "uploaded",
-            "extractor": structure["extractor"],
-        })
-
-    # Aggiorna conteggio documenti nella knowledge
-    if results:
-        update_documents_count(knowledge_id, delta=len(results))
+                if created is None:
+                    delete_import_pdf(knowledge_id, job_id)
+            jobs.append(created[0])
+        except Exception as exc:
+            delete_import_pdf(knowledge_id, job_id)
+            if isinstance(exc, HTTPException):
+                raise
+            errors.append({"filename": filename, "error": "Impossibile mettere il PDF in coda"})
 
     return {
-        "uploaded": results,
+        "jobs": jobs,
         "errors": errors,
-        "total_uploaded": len(results),
+        "total_queued": len(jobs),
         "total_errors": len(errors),
     }
 
@@ -119,8 +84,27 @@ def list_documents(knowledge_id: str) -> dict:
     if kb is None:
         raise HTTPException(status_code=404, detail="Knowledge non trovata")
 
-    rows = rest('GET', 'documents', params={'knowledge_id': f'eq.{identifier(knowledge_id)}', 'order':'uploaded_at.asc'})
-    return {"documents": rows, "total": len(rows)}
+    kb_id = identifier(knowledge_id)
+    rows = rest('GET', 'documents', params={'knowledge_id': f'eq.{kb_id}', 'order':'uploaded_at.asc'})
+    jobs = rest('GET', 'import_jobs', params={
+        'knowledge_id': f'eq.{kb_id}', 'status': 'in.(queued,running,failed)',
+        'order': 'created_at.desc', 'limit': '50',
+    })
+    return {"documents": rows, "jobs": jobs, "total": len(rows)}
+
+
+@router.post("/{knowledge_id}/imports/{job_id}/retry", dependencies=[Depends(require_kb_manager)])
+def retry_import(knowledge_id: str, job_id: str) -> dict:
+    kb_id, valid_job = identifier(knowledge_id), identifier(job_id)
+    rows = rest("GET", "import_jobs", params={"id": f"eq.{valid_job}", "knowledge_id": f"eq.{kb_id}"})
+    if not rows:
+        raise HTTPException(404, "Importazione non trovata")
+    if not get_import_path(kb_id, valid_job).exists():
+        raise HTTPException(409, "Il PDF originale non è più disponibile per il nuovo tentativo")
+    changed = rest("POST", "rpc/chatbot_retry_import_job", body={"p_job": valid_job})
+    if changed is not True:
+        raise HTTPException(409, "Solo un’importazione fallita può essere riprovata")
+    return {"job_id": valid_job, "status": "queued"}
 
 
 @router.get("/{knowledge_id}/documents/{document_id}/file")

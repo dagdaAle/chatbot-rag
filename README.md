@@ -91,14 +91,16 @@ OLLAMA_BASE_URL=http://host.docker.internal:11434
 
 ## Affidabilità e limiti operativi
 
-- Eseguire una sola istanza/worker quando si usano Qdrant embedded e metadati JSON.
+- Il worker d’importazione separato richiede Qdrant server. Non avviarlo con
+  `QDRANT_LOCAL_PATH`: lo storage embedded non può essere aperto da due processi.
 - `DATA_DIR` contiene conversazioni, PDF, prompt, metadati e configurazione runtime;
   il volume persistente deve essere montato su quel percorso. Salvare anche Qdrant
   (percorso `QDRANT_LOCAL_PATH` o volume del server) nei backup.
 - Il cambio del modello embedding è rifiutato quando esistono vettori: richiede
   una migrazione esplicita. Non vengono più ricreate automaticamente le collezioni.
-- Upload PDF: massimo 20 MB per file. L'indicizzazione resta nella richiesta HTTP,
-  senza una coda persistente; PDF scansionati richiedono OCR esterno.
+- Upload PDF: massimo 20 MB per file. Il PDF viene salvato sul volume e messo nella
+  coda persistente Supabase; il worker Docling locale gestisce struttura, tabelle e OCR.
+  Stato, avanzamento e nuovo tentativo sono visibili nella pagina Knowledge base.
 - Il retrieval mantiene la soglia di rilevanza e include le ultime due domande;
   non è una riscrittura della query tramite LLM. Cronologia: massimo 12 messaggi
   e 16000 caratteri. Le fonti recuperate non costituiscono una validazione delle

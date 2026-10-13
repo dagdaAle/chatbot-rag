@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     pdf_max_pages: int = Field(default=300, ge=1, le=2000)
     pdf_conversion_timeout: float = Field(default=180, gt=0, le=1800)
     docling_artifacts_path: str = ""
+    import_worker_poll_seconds: float = Field(default=3, ge=0.5, le=60)
+    import_worker_lease_seconds: int = Field(default=600, ge=60, le=1800)
     
     # Provider LLM: "openai" o "ollama"
     llm_provider: str = "deepseek"

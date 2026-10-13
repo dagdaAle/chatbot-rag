@@ -2,7 +2,7 @@ import { useReader } from '@/context/ReaderContext';
 import { useAuthUser } from '@/auth/AuthContext';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { FileText, FolderPlus, Loader2, Plus, Trash2, Upload } from 'lucide-react';
+import { Clock3, FileText, FolderPlus, Loader2, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,8 +34,10 @@ import {
   deleteDocument,
   deleteKnowledge,
   fetchDocuments,
+  retryImport,
   uploadDocuments,
   type DocumentItem,
+  type ImportJobItem,
   type KnowledgeItem,
 } from '@/api/client';
 import { useApp } from '@/context/AppContext';
@@ -56,22 +58,27 @@ export function KnowledgePage() {
   const canManage = !!selected?.can_manage;
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [jobs, setJobs] = useState<ImportJobItem[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const loadDocuments = useCallback(async (kbId: string) => {
-    setDocsLoading(true);
+  const loadDocuments = useCallback(async (kbId: string, silent = false) => {
+    if (!silent) setDocsLoading(true);
     try {
       const data = await fetchDocuments(kbId);
       setDocuments(data.documents);
+      setJobs(data.jobs);
     } catch (err) {
-      toast.error(errorMessage(err, 'Errore caricamento documenti'));
-      setDocuments([]);
+      if (!silent) {
+        toast.error(errorMessage(err, 'Errore caricamento documenti'));
+        setDocuments([]);
+        setJobs([]);
+      }
     } finally {
-      setDocsLoading(false);
+      if (!silent) setDocsLoading(false);
     }
   }, []);
 
@@ -81,6 +88,15 @@ export function KnowledgePage() {
     if (selectedId) loadDocuments(selectedId);
   }, [selectedId, loadDocuments]);
 
+  const hasRunningJobs = jobs.some((job) => job.status === 'queued' || job.status === 'running');
+  useEffect(() => {
+    if (!selectedId || !hasRunningJobs) return;
+    const timer = window.setInterval(async () => {
+      await Promise.all([loadDocuments(selectedId, true), reloadKnowledges()]);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [selectedId, hasRunningJobs, loadDocuments, reloadKnowledges]);
+
   const upload = async (files: File[]) => {
     if (!selected || !canManage) return;
     const pdfs = files.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
@@ -89,16 +105,16 @@ export function KnowledgePage() {
       return;
     }
     setUploading(true);
-    const id = toast.loading(`Indicizzazione di ${pdfs.length} file…`);
+    const id = toast.loading(`Caricamento di ${pdfs.length} file…`);
     try {
       const res = await uploadDocuments(selected.id, pdfs);
       if (res.total_errors > 0) {
-        toast.warning(`${res.total_uploaded} caricati, ${res.total_errors} con errori`, {
+        toast.warning(`${res.total_queued} messi in coda, ${res.total_errors} con errori`, {
           id,
           description: res.errors.map((e) => `${e.filename}: ${e.error}`).join('\n'),
         });
       } else {
-        toast.success(`${res.total_uploaded} file indicizzati`, { id });
+        toast.success(`${res.total_queued} file messi in coda`, { id });
       }
       await Promise.all([loadDocuments(selected.id), reloadKnowledges()]);
     } catch (err) {
@@ -106,6 +122,17 @@ export function KnowledgePage() {
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
+  const retry = async (job: ImportJobItem) => {
+    if (!selected) return;
+    try {
+      await retryImport(selected.id, job.id);
+      toast.success(`Nuovo tentativo avviato per «${job.filename}»`);
+      await loadDocuments(selected.id, true);
+    } catch (err) {
+      toast.error(errorMessage(err, 'Impossibile riprovare l’importazione'));
     }
   };
 
@@ -219,10 +246,10 @@ export function KnowledgePage() {
                     <Upload className="text-muted-foreground size-6" />
                   )}
                   <span className="text-sm font-medium">
-                    {uploading ? 'Indicizzazione in corso…' : 'Trascina qui i PDF o clicca per sceglierli'}
+                    {uploading ? 'Caricamento in corso…' : 'Trascina qui i PDF o clicca per sceglierli'}
                   </span>
                   <span className="text-muted-foreground text-xs">
-                    Il testo viene estratto, diviso in parti e indicizzato
+                    I PDF vengono messi in coda e indicizzati in modo recuperabile
                   </span>
                 </button>}
                 <input
@@ -233,6 +260,41 @@ export function KnowledgePage() {
                   hidden
                   onChange={(e) => upload(Array.from(e.target.files ?? []))}
                 />
+
+                {jobs.length > 0 && <div className="divide-y rounded-xl border" aria-label="Importazioni">
+                  {jobs.map((job) => (
+                    <div key={job.id} className="flex items-center gap-3 p-3">
+                      <div className="bg-muted flex size-8 shrink-0 items-center justify-center rounded-md">
+                        {job.status === 'running'
+                          ? <Loader2 className="text-primary size-4 animate-spin" />
+                          : <Clock3 className="text-muted-foreground size-4" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium">{job.filename}</p>
+                          <Badge variant={job.status === 'failed' ? 'destructive' : 'secondary'}>
+                            {job.status === 'queued' ? 'In coda' : job.status === 'failed' ? 'Errore' : importStageLabel(job.stage)}
+                          </Badge>
+                        </div>
+                        {job.status === 'failed' ? (
+                          <p className="text-destructive mt-1 text-xs">{job.last_error_message || 'Importazione non riuscita'}</p>
+                        ) : (
+                          <div className="bg-muted mt-2 h-1.5 overflow-hidden rounded-full">
+                            <div className="bg-primary h-full transition-all" style={{ width: `${job.progress}%` }} />
+                          </div>
+                        )}
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          Tentativo {job.attempts}/{job.max_attempts} · {job.progress}%
+                        </p>
+                      </div>
+                      {canManage && job.status === 'failed' && <Button
+                        variant="outline" size="sm" onClick={() => retry(job)}
+                      >
+                        <RotateCcw /> Riprova
+                      </Button>}
+                    </div>
+                  ))}
+                </div>}
 
                 <div className="divide-y rounded-xl border">
                   {docsLoading ? (
@@ -304,6 +366,13 @@ export function KnowledgePage() {
       </AlertDialog>
     </div>
   );
+}
+
+function importStageLabel(stage: ImportJobItem['stage']) {
+  return ({
+    queued: 'In coda', extracting: 'Estrazione', embedding: 'Embedding',
+    indexing: 'Indicizzazione', publishing: 'Pubblicazione', failed: 'Errore',
+  })[stage];
 }
 
 function CreateKnowledgeDialog({ onCreated }: { onCreated: (kb: KnowledgeItem) => Promise<void> }) {

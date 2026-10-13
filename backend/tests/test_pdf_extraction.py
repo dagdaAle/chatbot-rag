@@ -146,34 +146,33 @@ def test_delete_document_and_knowledge_remove_extracted_data(monkeypatch, tmp_pa
         assert not documents.get_structure_path(kb, doc_id).exists()
 
 
-@pytest.mark.parametrize("fail_metadata", [False, True])
-def test_upload_persists_structure_and_cleans_up_on_failure(monkeypatch, tmp_path, fail_metadata):
+@pytest.mark.parametrize("fail_queue", [False, True])
+def test_upload_persists_pending_pdf_and_cleans_up_on_queue_failure(monkeypatch, tmp_path, fail_queue):
     from app.api import documents as api
+    from app.auth import User, request_user
     from fastapi import UploadFile
-    monkeypatch.setattr(documents, "UPLOADS_DIR", tmp_path / "uploads")
-    monkeypatch.setattr(documents, "EXTRACTED_DIR", tmp_path / "extracted")
-    kb, doc_id = str(uuid4()), str(uuid4())
-    structure = structured_fixture()
-    deleted = []
+    monkeypatch.setattr(documents, "IMPORTS_DIR", tmp_path / "imports")
+    kb = str(uuid4())
     monkeypatch.setattr(api, "get_knowledge", lambda kb: object())
-    monkeypatch.setattr(api, "ensure_collection_for_kb", lambda *args: None)
-    monkeypatch.setattr(api, "process_pdf_to_points", lambda *args: (doc_id, [(str(uuid4()), [.1], {})], structure))
-    monkeypatch.setattr(api, "get_client", lambda: SimpleNamespace(upsert=lambda **kw: None, delete=lambda **kw: deleted.append(kw)))
     def rest(*args, **kwargs):
-        if fail_metadata:
-            raise RuntimeError("metadata unavailable")
-        return []
+        if fail_queue:
+            raise RuntimeError("queue unavailable")
+        return [{**kwargs["body"], "status": "queued"}]
     monkeypatch.setattr(api, "rest", rest)
     upload = UploadFile(filename="test.pdf", file=io.BytesIO(b"PDF"))
-    if fail_metadata:
-        with pytest.raises(RuntimeError, match="metadata unavailable"):
-            asyncio.run(api.upload_documents(kb, [upload]))
-        assert len(deleted) == 1
-    else:
+    marker = request_user.set(User(str(uuid4()), "token", True))
+    try:
         result = asyncio.run(api.upload_documents(kb, [upload]))
-        assert result["uploaded"][0]["extractor"] == "docling"
-    assert documents.get_structure_path(kb, doc_id).exists() is not fail_metadata
-    assert documents.get_upload_path(kb, doc_id).exists() is not fail_metadata
+    finally:
+        request_user.reset(marker)
+    if fail_queue:
+        assert result["total_queued"] == 0
+        assert result["total_errors"] == 1
+        assert not list((tmp_path / "imports").rglob("*.pdf"))
+    else:
+        assert result["total_queued"] == 1
+        assert result["jobs"][0]["status"] == "queued"
+        assert list((tmp_path / "imports").rglob("*.pdf"))[0].read_bytes() == b"PDF"
 
 
 @pytest.mark.skipif(os.getenv("RUN_DOCLING_INTEGRATION") != "1", reason="requires local models, reportlab and Tesseract ita+eng")

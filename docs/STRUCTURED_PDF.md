@@ -67,11 +67,10 @@ planned reindex. No SQL migration or embedding-dimension change is required.
 
 ## Limits and verification
 
-Conversion is serialized **per backend process**, with a five-second wait before a
-busy error. This is an interim guard, not the persistent import worker planned next.
-Use one backend process until that worker exists. The configured timeout applies to
-Docling conversion, not model initialization, queue persistence or embedding calls.
-The existing HTTP upload remains synchronous and reverse-proxy timeouts still apply.
+Conversion is serialized in the dedicated import worker. Upload requests only persist
+the source PDF and enqueue work. Queue state, retry and deployment requirements are
+documented in [IMPORT_WORKER.md](IMPORT_WORKER.md). The configured timeout applies to
+Docling conversion, not model initialization or embedding calls.
 
 Chunks target 2,000 characters; individual table rows remain atomic and can exceed
 that target. Any chunk over 12,000 characters is rejected rather than silently
