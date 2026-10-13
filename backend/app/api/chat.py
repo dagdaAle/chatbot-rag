@@ -47,6 +47,12 @@ class SourceItem(BaseModel):
     context_scope: str = "chunk"
     section_complete: bool = False
     expanded_chunks: int = 1
+    verified_data: bool = False
+    version_label: str | None = None
+    series_key: str | None = None
+    price_value: str | None = None
+    price_column: str | None = None
+    raw_cells: dict[str, str] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -56,6 +62,8 @@ class ChatResponse(BaseModel):
     contexts_used: int
     conversation_id: str | None = None  # ID conversazione creata/aggiornata
     model_key: str | None = None
+    structured_intent: str | None = None
+    structured_rows_matched: int | None = None
 
 
 @router.post("", response_model=ChatResponse)
@@ -98,14 +106,17 @@ def chat(request: ChatRequest) -> ChatResponse:
     try:
         result = rag_chat(request.question.strip(),top_k=request.top_k,conversation_history=history,
             knowledge_id=request.knowledge_id,score_threshold=request.score_threshold,provider=chosen['provider'],model=chosen['model_id'])
+        is_structured = result.get('structured_intent') is not None
         if not conversation_id:
             conversation_id = create_conversation(request.question.strip()[:40], request.knowledge_id)['id']
         save_turn(conversation_id, request.question.strip(), result['answer'], result['sources'])
         privileged('PATCH','/rest/v1/usage_events',params={'parent_id':f'eq.{reservation}'},body={'conversation_id':conversation_id})
         privileged('PATCH','/rest/v1/usage_events',params={'id':f'eq.{reservation}'},body={
-            'status':'success' if result['contexts_used'] else 'no_context','provider':chosen['provider'],'model_id':chosen['model_id'],
+            'status':'success' if result['contexts_used'] else 'no_context',
+            'provider':None if is_structured else chosen['provider'],
+            'model_id':None if is_structured else chosen['model_id'],
             'conversation_id':conversation_id,'duration_ms':int((perf_counter()-started)*1000)})
-        return ChatResponse(**result,conversation_id=conversation_id,model_key=key)
+        return ChatResponse(**result,conversation_id=conversation_id,model_key=None if is_structured else key)
     except Exception as exc:
         privileged('PATCH','/rest/v1/usage_events',params={'id':f'eq.{reservation}'},body={'status':'error','error_code':type(exc).__name__,'duration_ms':int((perf_counter()-started)*1000)})
         raise

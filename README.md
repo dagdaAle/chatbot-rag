@@ -13,6 +13,7 @@ Chatbot RAG avanzato con supporto per documenti PDF, chunking semantico e divers
 - **Chunking intelligente**: 2000 caratteri con overlap 250, divisione semantica su paragrafi e frasi
 - **Ricerca ibrida**: embedding semantici + indice lessicale IDF, fusi con RRF; codici e numeri di atto ricevono un segnale esatto aggiuntivo
 - **Recupero gerarchico**: il chunk trovato viene ampliato all'articolo o alla sezione Docling completa, entro un budget configurabile
+- **Listini strutturati**: prezzi, conteggi, statistiche e confronti fra versioni sono calcolati su celle tipizzate con provenienza verificabile
 - **Risultati diversificati**: MMR (Maximum Marginal Relevance) riduce i chunk duplicati
 - **Provider multipli**: supporto per OpenAI e Ollama
 - **Filtro per score**: filtraggio automatico di chunk poco rilevanti
@@ -114,6 +115,9 @@ OLLAMA_BASE_URL=http://host.docker.internal:11434
 - Dopo il ranking, il recupero gerarchico riunisce i chunk con gli stessi riferimenti
   strutturali; per i PDF senza gerarchia include i chunk adiacenti. Configurazione e
   limiti sono descritti in [docs/HIERARCHICAL_RETRIEVAL.md](docs/HIERARCHICAL_RETRIEVAL.md).
+- Le tabelle con colonne prezzo riconoscibili alimentano un indice SQL derivato nel
+  volume `DATA_DIR`. Le risposte numeriche non sono affidate al modello: dettagli,
+  limiti e reindicizzazione sono in [docs/STRUCTURED_PRICES.md](docs/STRUCTURED_PRICES.md).
 
 Test backend (virtualenv, dipendenze in `backend/requirements.txt` + pytest/httpx):
 

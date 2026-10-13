@@ -150,10 +150,16 @@ export interface ChatSource {
   section_refs?: string[];
   source_regions?: Array<{ item_ref: string; page: number; bbox?: { l: number; t: number; r: number; b: number; coord_origin: string } }>;
   content_kind?: string;
-  retrieval_method?: 'hybrid_rrf' | 'semantic_legacy';
-  context_scope?: 'section' | 'neighbors' | 'chunk';
+  retrieval_method?: 'hybrid_rrf' | 'semantic_legacy' | 'structured_price';
+  context_scope?: 'section' | 'neighbors' | 'chunk' | 'structured_row';
   section_complete?: boolean;
   expanded_chunks?: number;
+  verified_data?: boolean;
+  version_label?: string | null;
+  series_key?: string | null;
+  price_value?: string | null;
+  price_column?: string | null;
+  raw_cells?: Record<string, string> | null;
 }
 
 /**
@@ -194,6 +200,8 @@ export interface ChatResponse {
   sources: ChatSource[];
   contexts_used: number;
   conversation_id?: string | null;
+  structured_intent?: 'lookup' | 'count' | 'compare' | 'stats' | null;
+  structured_rows_matched?: number | null;
 }
 
 export interface ChatMessageItem {

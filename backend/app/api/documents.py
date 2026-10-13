@@ -159,6 +159,8 @@ def delete_document(knowledge_id: str, document_id: str) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
     # Elimina il PDF dal disco
+    from app.core.price_lists import delete_price_document
+    delete_price_document(document_id)
     delete_pdf_from_disk(knowledge_id, document_id)
 
     rest("DELETE", "documents", params={"document_id": f"eq.{identifier(document_id)}", "knowledge_id": f"eq.{identifier(knowledge_id)}"})

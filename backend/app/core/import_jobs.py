@@ -25,6 +25,7 @@ from app.core.documents import (
 )
 from app.core.knowledge import get_collection_name
 from app.core.qdrant_client import ensure_collection_for_kb, get_client
+from app.core.price_lists import delete_price_document, index_price_document
 from app.core.usage import operation_context
 
 logger = logging.getLogger(__name__)
@@ -130,9 +131,19 @@ def _delete_vectors(client, collection_name: str, document_id: str) -> None:
 
 
 def _cleanup_partial(job: dict, client, collection_name: str) -> None:
-    privileged("DELETE", "/rest/v1/documents", params={"document_id": f"eq.{job['document_id']}"})
-    _delete_vectors(client, collection_name, job["document_id"])
-    delete_pdf_from_disk(job["knowledge_id"], job["document_id"])
+    first_error = None
+    for cleanup in (
+        lambda: privileged("DELETE", "/rest/v1/documents", params={"document_id": f"eq.{job['document_id']}"}),
+        lambda: _delete_vectors(client, collection_name, job["document_id"]),
+        lambda: delete_price_document(job["document_id"]),
+        lambda: delete_pdf_from_disk(job["knowledge_id"], job["document_id"]),
+    ):
+        try:
+            cleanup()
+        except Exception as exc:
+            first_error = first_error or exc
+    if first_error:
+        raise first_error
 
 
 def _safe_error(exc: Exception) -> str:
@@ -178,6 +189,7 @@ def process_job(job: dict, worker: str) -> None:
         heartbeat.assert_owned()
         save_pdf_to_disk(content, kb_id, document_id)
         save_document_structure(structure, kb_id, document_id)
+        index_price_document(structure, kb_id, document_id, job["filename"])
         for start in range(0, len(points), 100):
             heartbeat.assert_owned()
             batch = [PointStruct(id=pid, vector=vec, payload=payload) for pid, vec, payload in points[start:start + 100]]

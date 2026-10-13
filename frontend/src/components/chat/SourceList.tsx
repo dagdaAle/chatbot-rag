@@ -58,14 +58,21 @@ export function SourceList({
                       <p className="truncate text-sm font-medium">{s.filename}</p>
                       <Badge
                         variant="secondary"
-                        title={s.retrieval_method === 'hybrid_rrf' ? 'Risultato da ricerca semantica e lessicale' : 'Similarità con la domanda'}
+                        title={s.verified_data ? 'Valore estratto da una cella e calcolato deterministicamente' : s.retrieval_method === 'hybrid_rrf' ? 'Risultato da ricerca semantica e lessicale' : 'Similarità con la domanda'}
                       >
-                        {s.retrieval_method === 'hybrid_rrf' ? 'Ibrida' : `${Math.round(s.score * 100)}%`}
+                        {s.verified_data ? 'Verificato' : s.retrieval_method === 'hybrid_rrf' ? 'Ibrida' : `${Math.round(s.score * 100)}%`}
                       </Badge>
                     </div>
                     <p className="text-muted-foreground line-clamp-[10] text-xs leading-relaxed whitespace-pre-line">
                       {s.text}
                     </p>
+                    {s.verified_data && s.raw_cells && (
+                      <div className="bg-muted mt-2 rounded-md p-2 font-mono text-xs">
+                        {Object.entries(s.raw_cells).map(([header, value]) => (
+                          <div key={header}><span className="text-muted-foreground">{header.replace(/^\d+:/, '')}:</span> {value}</div>
+                        ))}
+                      </div>
+                    )}
                     {s.context_scope === 'section' && (
                       <p className="text-muted-foreground mt-2 text-xs">
                         {s.section_complete ? 'Articolo o sezione completa' : 'Estratto esteso della sezione'}

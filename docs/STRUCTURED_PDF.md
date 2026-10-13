@@ -91,6 +91,5 @@ RUN_DOCLING_INTEGRATION=1 PDF_TEST_FONT=/path/to/font.ttf \
   PYTHONPATH=backend python -m pytest backend/tests/test_pdf_extraction.py -q
 ```
 
-This is the extraction feature. Hybrid search, hierarchical parent retrieval,
-reranking, structured SQL price queries and multi-step agentic research are separate
-increments; they are not enabled by this branch.
+The extracted table grid and provenance also feed the optional structured price index
+described in [STRUCTURED_PRICES.md](STRUCTURED_PRICES.md).

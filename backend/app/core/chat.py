@@ -12,6 +12,7 @@ from app.core.embeddings import get_query_embedding
 from app.core.hierarchical import expand_hierarchical_contexts
 from app.core.qdrant_client import COLLECTION_NAME, collection_supports_hybrid, get_client
 from app.core.lexical import LEXICAL_VECTOR_NAME, sparse_text_vector
+from app.core.price_lists import query_price_lists
 from app.core.knowledge import get_collection_name, get_knowledge
 from app.core.ollama_client import generate_chat_response as ollama_generate_chat_response
 
@@ -409,16 +410,23 @@ def chat(
             break
     previous_questions = [m["content"] for m in history if m.get("role") == "user"][-2:]
     retrieval_query = "\n".join(previous_questions + [question])
-    contexts = retrieve_context(
-        retrieval_query,
-        top_k=top_k,
-        knowledge_id=knowledge_id,
-        score_threshold=score_threshold,
-        lexical_query=question,
-    )
-
-    # Genera la risposta
-    answer = generate_response(question, contexts, history, provider=provider, model=model)
+    structured = query_price_lists(
+        "\n".join(previous_questions + [question]),
+        knowledge_id,
+        current_question=question,
+    ) if knowledge_id else None
+    if structured:
+        contexts = structured["sources"]
+        answer = structured["answer"]
+    else:
+        contexts = retrieve_context(
+            retrieval_query,
+            top_k=top_k,
+            knowledge_id=knowledge_id,
+            score_threshold=score_threshold,
+            lexical_query=question,
+        )
+        answer = generate_response(question, contexts, history, provider=provider, model=model)
 
     # Prepara le fonti con testo completo per il frontend
     sources = []
@@ -440,10 +448,18 @@ def chat(
             "context_scope": ctx.get("context_scope", "chunk"),
             "section_complete": ctx.get("section_complete", False),
             "expanded_chunks": ctx.get("expanded_chunks", 1),
+            "verified_data": ctx.get("verified_data", False),
+            "version_label": ctx.get("version_label"),
+            "series_key": ctx.get("series_key"),
+            "price_value": ctx.get("price_value"),
+            "price_column": ctx.get("price_column"),
+            "raw_cells": ctx.get("raw_cells"),
         })
 
     return {
         "answer": answer,
         "sources": sources,
         "contexts_used": len(contexts),
+        "structured_intent": structured.get("intent") if structured else None,
+        "structured_rows_matched": structured.get("rows_matched") if structured else None,
     }

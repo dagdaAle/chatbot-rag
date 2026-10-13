@@ -78,6 +78,8 @@ embedding, indexing and publication progress. Failed jobs display a safe message
 a **Riprova** action. Published jobs disappear from the queue and appear in the normal
 document list.
 
-Backups must now include `DATA_DIR/imports` as well as `uploads`, `extracted`, Qdrant
-and Supabase. A database backup without the pending PDF cannot resume an incomplete
-job; the API rejects retry when that file is missing.
+Backups must now include `DATA_DIR/imports`, `uploads`, `extracted` and
+`structured_prices.sqlite*`, as well as Qdrant and Supabase. A database backup without
+the pending PDF cannot resume an incomplete job; the API rejects retry when that file
+is missing. The structured price database is derived and can also be rebuilt from the
+saved extraction JSON files.

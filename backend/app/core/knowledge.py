@@ -4,6 +4,7 @@ from uuid import uuid4
 from app.core.supabase import rest, identifier
 from app.core.qdrant_client import get_client, ensure_collection_for_kb, delete_collection_for_kb
 from app.core.documents import delete_knowledge_pdfs
+from app.core.price_lists import delete_price_knowledge
 
 
 @dataclass
@@ -59,6 +60,7 @@ def delete_knowledge(knowledge_id):
     name = get_collection_name(knowledge_id)
     if any(c.name == name for c in client.get_collections().collections):
         client.delete_collection(name)
+    delete_price_knowledge(knowledge_id)
     delete_knowledge_pdfs(knowledge_id)
     return bool(rest('DELETE', 'knowledge_bases', params={'id':f'eq.{identifier(knowledge_id)}'}))
 
