@@ -147,9 +147,13 @@ export interface ChatSource {
   page_start: number;
   page_end: number;
   section_path?: string[];
+  section_refs?: string[];
   source_regions?: Array<{ item_ref: string; page: number; bbox?: { l: number; t: number; r: number; b: number; coord_origin: string } }>;
   content_kind?: string;
   retrieval_method?: 'hybrid_rrf' | 'semantic_legacy';
+  context_scope?: 'section' | 'neighbors' | 'chunk';
+  section_complete?: boolean;
+  expanded_chunks?: number;
 }
 
 /**

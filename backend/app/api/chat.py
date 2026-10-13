@@ -40,9 +40,13 @@ class SourceItem(BaseModel):
     page_start: int = 1
     page_end: int = 1
     section_path: list[str] = Field(default_factory=list)
+    section_refs: list[str] = Field(default_factory=list)
     source_regions: list[dict] = Field(default_factory=list)
     content_kind: str = "text"
     retrieval_method: str = "semantic_legacy"
+    context_scope: str = "chunk"
+    section_complete: bool = False
+    expanded_chunks: int = 1
 
 
 class ChatResponse(BaseModel):

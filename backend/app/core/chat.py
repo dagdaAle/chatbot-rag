@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from app.config import settings, runtime_config
 from app.core.embeddings import get_query_embedding
+from app.core.hierarchical import expand_hierarchical_contexts
 from app.core.qdrant_client import COLLECTION_NAME, collection_supports_hybrid, get_client
 from app.core.lexical import LEXICAL_VECTOR_NAME, sparse_text_vector
 from app.core.knowledge import get_collection_name, get_knowledge
@@ -307,12 +308,20 @@ def retrieve_context(
             "page_start": payload.get("page_start", 1),
             "page_end": payload.get("page_end", 1),
             "section_path": payload.get("section_path", []),
+            "section_refs": payload.get("section_refs", []),
             "source_regions": payload.get("source_regions", []),
             "content_kind": payload.get("content_kind", "text"),
             "score": hit.score,
             "retrieval_method": retrieval_method,
         })
-    return contexts
+    return expand_hierarchical_contexts(
+        client,
+        collection_name,
+        contexts,
+        section_char_limit=settings.retrieval_section_max_chars,
+        total_char_limit=settings.retrieval_total_max_chars,
+        neighbor_chunks=settings.retrieval_neighbor_chunks,
+    )
 
 
 def generate_response(
@@ -328,7 +337,14 @@ def generate_response(
     # Costruisci il contesto formattato dai documenti
     context_parts = []
     for i, ctx in enumerate(contexts, 1):
-        context_parts.append(f"[Documento: {ctx['filename']}]\n{ctx['text']}")
+        header = f"Documento: {ctx['filename']}"
+        if ctx.get("section_path"):
+            header += f" | Sezione: {' > '.join(ctx['section_path'])}"
+        if ctx.get("context_scope") == "section":
+            header += " | sezione completa" if ctx.get("section_complete") else " | estratto esteso della sezione"
+        elif ctx.get("context_scope") == "neighbors":
+            header += " | passaggio con contesto adiacente"
+        context_parts.append(f"[{header}]\n{ctx['text']}")
 
     context_text = "\n\n---\n\n".join(context_parts)
 
@@ -417,9 +433,13 @@ def chat(
             "page_start": ctx.get("page_start", 1),
             "page_end": ctx.get("page_end", 1),
             "section_path": ctx.get("section_path", []),
+            "section_refs": ctx.get("section_refs", []),
             "source_regions": ctx.get("source_regions", []),
             "content_kind": ctx.get("content_kind", "text"),
             "retrieval_method": ctx.get("retrieval_method", "semantic_legacy"),
+            "context_scope": ctx.get("context_scope", "chunk"),
+            "section_complete": ctx.get("section_complete", False),
+            "expanded_chunks": ctx.get("expanded_chunks", 1),
         })
 
     return {

@@ -66,6 +66,12 @@ export function SourceList({
                     <p className="text-muted-foreground line-clamp-[10] text-xs leading-relaxed whitespace-pre-line">
                       {s.text}
                     </p>
+                    {s.context_scope === 'section' && (
+                      <p className="text-muted-foreground mt-2 text-xs">
+                        {s.section_complete ? 'Articolo o sezione completa' : 'Estratto esteso della sezione'}
+                        {s.expanded_chunks && s.expanded_chunks > 1 ? ` · ${s.expanded_chunks} frammenti riuniti` : ''}
+                      </p>
+                    )}
                     {selection && (
                       <p className="text-primary mt-2 flex items-center gap-1 text-xs">
                         <ExternalLink className="size-3" /> Clic per aprire il PDF a {pages(s)}

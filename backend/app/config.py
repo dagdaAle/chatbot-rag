@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     docling_artifacts_path: str = ""
     import_worker_poll_seconds: float = Field(default=3, ge=0.5, le=60)
     import_worker_lease_seconds: int = Field(default=600, ge=60, le=1800)
+    retrieval_section_max_chars: int = Field(default=18000, ge=2000, le=100000)
+    retrieval_total_max_chars: int = Field(default=48000, ge=4000, le=200000)
+    retrieval_neighbor_chunks: int = Field(default=1, ge=0, le=5)
     
     # Provider LLM: "openai" o "ollama"
     llm_provider: str = "deepseek"
