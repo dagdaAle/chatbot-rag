@@ -119,6 +119,9 @@ def test_deepseek_uses_dedicated_client(monkeypatch):
         captured.update(kwargs)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='ok'))],usage=None)
     fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    from contextlib import nullcontext
+    protected = SimpleNamespace(messages=[], restore=lambda text: text)
+    monkeypatch.setattr(chat, 'protected_request', lambda messages: nullcontext(protected))
     monkeypatch.setattr(chat, '_get_deepseek_client', lambda: fake)
     monkeypatch.setattr(chat, '_get_openai_client', lambda: pytest.fail('OpenAI must not be called'))
     monkeypatch.setattr(runtime_config, 'chat_provider', 'deepseek')

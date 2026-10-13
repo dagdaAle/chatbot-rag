@@ -1,6 +1,7 @@
 """Endpoint chat RAG."""
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
+from app.core.privacy import PrivacyError
 
 from app.core.chat import chat as rag_chat
 from app.core.conversations import (
@@ -119,6 +120,8 @@ def chat(request: ChatRequest) -> ChatResponse:
         return ChatResponse(**result,conversation_id=conversation_id,model_key=None if is_structured else key)
     except Exception as exc:
         privileged('PATCH','/rest/v1/usage_events',params={'id':f'eq.{reservation}'},body={'status':'error','error_code':type(exc).__name__,'duration_ms':int((perf_counter()-started)*1000)})
+        if isinstance(exc, PrivacyError):
+            raise HTTPException(503, detail=str(exc)) from None
         raise
     finally:
         operation_context.reset(marker)

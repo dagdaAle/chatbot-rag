@@ -3,6 +3,7 @@ from openai import OpenAI
 
 from app.config import settings, runtime_config
 from app.core.ollama_client import generate_embedding as ollama_generate_embedding
+from app.core.privacy import require_local_embeddings
 
 # Mappa dimensioni embedding per modelli noti
 EMBEDDING_SIZES = {
@@ -45,6 +46,7 @@ def _get_openai_client() -> OpenAI:
 def get_embedding(text: str, operation: str = 'query_embedding') -> list[float]:
     from app.core.usage import measure
     provider, model = runtime_config.embedding_provider, runtime_config.embedding_model
+    require_local_embeddings(provider)
     with measure(provider, model, operation) as usage:
         if provider == 'ollama':
             return ollama_generate_embedding(text, model=model, usage=usage)
@@ -61,6 +63,7 @@ def get_query_embedding(query: str) -> list[float]:
 def get_embeddings_batch(texts: list[str]) -> list[list[float]]:
     from app.core.usage import measure
     provider, model = runtime_config.embedding_provider, runtime_config.embedding_model
+    require_local_embeddings(provider)
     if provider == 'ollama':
         return [get_embedding(text, 'document_embedding') for text in texts]
     results = []

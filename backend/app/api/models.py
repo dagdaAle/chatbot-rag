@@ -131,12 +131,8 @@ def list_chat_models() -> ModelsListResponse:
 
 @router.get("/embedding", response_model=ModelsListResponse)
 def list_embedding_models() -> ModelsListResponse:
-    """Lista dei modelli embedding disponibili (OpenAI + Ollama)."""
+    """Lista dei modelli embedding locali consentiti."""
     models: list[ModelInfo] = []
-    
-    # Aggiungi modelli OpenAI se la chiave è configurata
-    if settings.openai_api_key:
-        models.extend(OPENAI_EMBEDDING_MODELS)
     
     # Aggiungi modelli Ollama per embedding
     ollama_models = _fetch_ollama_models()
@@ -183,10 +179,9 @@ def set_embedding_model(request: ModelSetRequest) -> ModelSetResponse:
     """Imposta il modello embedding corrente (indipendente dalla chat)."""
     if request.provider not in ("openai", "ollama"):
         raise HTTPException(status_code=400, detail="Provider non valido. Usa 'openai' o 'ollama'.")
-    
-    if request.provider == "openai" and not settings.openai_api_key:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY non configurata.")
-    
+    if request.provider != "ollama":
+        raise HTTPException(status_code=409, detail="La protezione dei dati richiede embedding locali con Ollama.")
+
     from app.core.qdrant_client import get_client
     if (request.provider, request.model_id) != (runtime_config.embedding_provider, runtime_config.embedding_model):
         client = get_client()
@@ -203,4 +198,3 @@ def set_embedding_model(request: ModelSetRequest) -> ModelSetResponse:
         provider=request.provider,
         message=f"Modello embedding impostato a {request.model_id} ({request.provider})",
     )
-
