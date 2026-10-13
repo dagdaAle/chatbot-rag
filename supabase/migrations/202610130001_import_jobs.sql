@@ -3,7 +3,7 @@ begin;
 
 create table public.import_jobs (
  id uuid primary key default gen_random_uuid(),
- document_id uuid not null unique,
+ document_id uuid not null unique default gen_random_uuid(),
  knowledge_id uuid not null references public.knowledge_bases(id) on delete cascade,
  created_by uuid references public.app_profiles(id) on delete set null default auth.uid(),
  filename text not null check(length(btrim(filename)) between 1 and 500),
@@ -33,10 +33,18 @@ alter table public.import_jobs enable row level security;
 create policy import_jobs_read on public.import_jobs for select to authenticated
  using(public.chatbot_kb_access(knowledge_id));
 create policy import_jobs_insert on public.import_jobs for insert to authenticated
- with check(created_by=auth.uid() and public.chatbot_kb_access(knowledge_id,true));
+ with check(created_by=auth.uid() and public.chatbot_kb_access(knowledge_id,true)
+  and status='queued' and stage='queued' and progress=0 and attempts=0 and max_attempts=3
+  and lease_owner is null and lease_expires_at is null
+  and extractor is null and extractor_version is null and chunks_count is null
+  and last_error_code is null and last_error_message is null
+  and started_at is null and completed_at is null);
 
 revoke all on public.import_jobs from anon;
-grant select,insert on public.import_jobs to authenticated;
+grant select on public.import_jobs to authenticated;
+-- The caller supplies only upload metadata; the database owns the document ID
+-- and all worker state, so a forged insert cannot overwrite another document.
+grant insert(id,knowledge_id,filename,size_bytes) on public.import_jobs to authenticated;
 grant all on public.import_jobs to service_role;
 
 create function public.chatbot_claim_import_job(p_worker text, p_lease_seconds integer default 600)
@@ -89,7 +97,7 @@ begin
   last_error_message=left(p_error_message,500),
   completed_at=case when p_status in ('succeeded','failed') then clock_timestamp() else null end,
   updated_at=clock_timestamp()
- where id=p_job and status='running' and lease_owner=p_worker;
+ where id=p_job and status='running' and lease_owner=p_worker and lease_expires_at > clock_timestamp();
  get diagnostics changed=row_count;
  return changed=1;
 end; $$;

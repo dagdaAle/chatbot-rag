@@ -106,3 +106,19 @@ def test_worker_refuses_embedded_qdrant(monkeypatch):
     monkeypatch.setenv("QDRANT_LOCAL_PATH", "/data/qdrant")
     with pytest.raises(RuntimeError, match="Qdrant server"):
         import_jobs.run_worker(once=True)
+
+
+def test_cleanup_does_not_delete_artifacts_after_losing_lease(monkeypatch, tmp_path):
+    current, client = job(), FakeClient()
+    setup_paths(monkeypatch, tmp_path)
+    documents.save_import_pdf(b"PDF", current["knowledge_id"], current["id"])
+    monkeypatch.setattr(import_jobs, "get_client", lambda: client)
+    monkeypatch.setattr(import_jobs, "ensure_collection_for_kb", lambda *args: None)
+    monkeypatch.setattr(import_jobs, "process_pdf_to_points", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("embedding unavailable")))
+    cleanup_calls = []
+    monkeypatch.setattr(import_jobs, "_cleanup_partial", lambda *args: cleanup_calls.append(args))
+    responses = iter((True, False))
+    monkeypatch.setattr(import_jobs, "_rpc", lambda *args, **kwargs: next(responses))
+    with pytest.raises(import_jobs.LostLease):
+        import_jobs.process_job(current, "old-worker")
+    assert len(cleanup_calls) == 1  # Initial cleanup only; no failure-time deletion.

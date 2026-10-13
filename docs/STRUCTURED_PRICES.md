@@ -50,9 +50,17 @@ al modello linguistico. Ogni riferimento numerato apre il PDF e mostra la riga
 originale; l'interfaccia usa il badge **Verificato**. Se la domanda non trova righe
 strutturate coerenti, il flusso torna alla ricerca RAG normale.
 
+I codici devono coincidere per intero. Le soglie «meno di» e «più di» sono esclusive;
+«fino a» e «almeno» sono inclusive. Un conteggio senza corrispondenze restituisce zero
+quando il listino da esaminare è presente. Date complete e revisioni vengono filtrate
+esattamente. Le statistiche restano separate per documento/versione, colonna, valuta
+e unità di misura; i confronti rifiutano unità cambiate o codici duplicati ambigui.
+
 Il sistema non attribuisce una valuta assente, non completa celle vuote e non tratta
 come prezzo una colonna priva di intestazione riconoscibile. Tabelle senza header o
 con layout ambiguo restano disponibili nel normale contesto documentale.
+Valori con separatori ambigui come `1.234` o `1,234`, raggruppamenti non validi e
+valute in conflitto fra intestazione e cella non alimentano le risposte verificate.
 
 ## Documenti già importati
 
@@ -71,7 +79,10 @@ vengono segnalati e non sono modificati.
 ## Backup e collaudo
 
 Il backup operativo deve includere `structured_prices.sqlite`, `-wal` e `-shm`
-insieme al resto di `DATA_DIR`. In alternativa, dopo il ripristino di Supabase,
+insieme al resto di `DATA_DIR`, con API e worker arrestati. Per una copia a caldo,
+usare l'API `sqlite3.Connection.backup` e salvare il file risultante: copiare
+separatamente database e WAL mentre cambiano non garantisce una copia coerente.
+In alternativa, dopo il ripristino di Supabase,
 `extracted/` e dei PDF, l'indice può essere ricostruito con il comando precedente.
 
 Per il collaudo usare almeno due versioni reali dello stesso listino e verificare:

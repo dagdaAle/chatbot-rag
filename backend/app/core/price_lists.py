@@ -17,7 +17,7 @@ from app.config import DATA_DIR
 PRICE_DB = DATA_DIR / "structured_prices.sqlite"
 _lock = RLock()
 
-_PRICE_HEADER = re.compile(r"\b(prezz|price|importo|importi|tariff|costo|cost|valore|euro|eur|usd)\w*\b|[€$£]", re.I)
+_PRICE_HEADER = re.compile(r"\b(prezz[oi]|prices?|import[oi]|tariff[ae]|cost[oi]?|eur(?:o)?|usd|gbp)\b|[€$£]", re.I)
 _CODE_HEADER = re.compile(r"\b(codice|cod\.?|code|sku|articolo|art\.?|id)\b", re.I)
 _DESCRIPTION_HEADER = re.compile(r"\b(descrizione|descr\.?|description|prodotto|servizio|denominazione|voce)\b", re.I)
 _UNIT_HEADER = re.compile(r"\b(unità|unita|unit|u\.?m\.?|misura)\b", re.I)
@@ -34,6 +34,7 @@ _STOPWORDS = {
     "una", "versione", "versioni", "voce", "voci", "conta", "conteggio", "numero", "mostra", "dammi",
     "confronta", "confronto", "differenza", "variazione", "media", "medio", "minimo", "massimo",
     "meno", "piu", "sotto", "sopra", "inferiore", "superiore", "almeno", "fino",
+    "codice", "cod", "sku", "anno", "rev", "revisione", "ver", "uguale", "ed",
 }
 
 
@@ -123,15 +124,16 @@ def _version_metadata(filename: str) -> tuple[str, str, str | None]:
     return series_key, version_label, effective_date
 
 
-def _currency(*values: str) -> str | None:
+def _currencies(*values: str) -> set[str]:
     text = " ".join(values).upper()
-    if "EUR" in text or "EURO" in text or "€" in text:
-        return "EUR"
-    if "USD" in text or "$" in text:
-        return "USD"
-    if "GBP" in text or "£" in text:
-        return "GBP"
-    return None
+    currencies = set()
+    if re.search(r"\b(?:EUR|EURO)\b|€", text):
+        currencies.add("EUR")
+    if re.search(r"\bUSD\b|\$", text):
+        currencies.add("USD")
+    if re.search(r"\bGBP\b|£", text):
+        currencies.add("GBP")
+    return currencies
 
 
 def parse_decimal(raw: str) -> Decimal | None:
@@ -149,13 +151,22 @@ def parse_decimal(raw: str) -> Decimal | None:
     if "," in value and "." in value:
         decimal_sep = "," if value.rfind(",") > value.rfind(".") else "."
         thousands_sep = "." if decimal_sep == "," else ","
+        integer, fraction = value.rsplit(decimal_sep, 1)
+        if not re.fullmatch(rf"\d{{1,3}}(?:\{thousands_sep}\d{{3}})+", integer) or not fraction.isdigit():
+            return None
         value = value.replace(thousands_sep, "").replace(decimal_sep, ".")
-    elif "," in value:
-        parts = value.split(",")
-        value = "".join(parts) if len(parts[-1]) == 3 and len(parts) > 1 else "".join(parts[:-1]) + "." + parts[-1]
-    elif "." in value:
-        parts = value.split(".")
-        value = "".join(parts) if len(parts[-1]) == 3 and len(parts) > 1 else "".join(parts[:-1]) + "." + parts[-1]
+    elif "," in value or "." in value:
+        separator = "," if "," in value else "."
+        parts = value.split(separator)
+        if len(parts) == 2:
+            # 1.234 / 1,234 can mean either 1234 or 1.234; do not guess.
+            if len(parts[-1]) == 3 or not parts[-1].isdigit():
+                return None
+            value = ".".join(parts)
+        elif re.fullmatch(rf"\d{{1,3}}(?:\{separator}\d{{3}})+", value):
+            value = "".join(parts)
+        else:
+            return None
     try:
         return Decimal(sign + value)
     except InvalidOperation:
@@ -200,7 +211,10 @@ def _table_entries(block: dict) -> list[dict]:
             price = parse_decimal(raw_price)
             if price is None:
                 continue
-            excluded = {price_index}
+            currencies = _currencies(price_header, raw_price)
+            if len(currencies) > 1:
+                continue
+            excluded = {index for index, _ in price_columns}
             if code_column is not None:
                 excluded.add(code_column)
             if unit_column is not None:
@@ -216,7 +230,7 @@ def _table_entries(block: dict) -> list[dict]:
                 "item_code": padded[code_column] if code_column is not None else None,
                 "description": description or None,
                 "unit": padded[unit_column] if unit_column is not None else None,
-                "currency": _currency(price_header, raw_price),
+                "currency": next(iter(currencies), None),
                 "price_value": format(price, "f"),
                 "raw_price": raw_price,
                 "raw_cells": raw_cells,
@@ -277,6 +291,8 @@ class PricePlan:
     versions: tuple[str, ...]
     minimum: Decimal | None = None
     maximum: Decimal | None = None
+    minimum_inclusive: bool = True
+    maximum_inclusive: bool = True
 
 
 def plan_price_question(question: str, *, require_intent: bool = True) -> PricePlan | None:
@@ -289,10 +305,15 @@ def plan_price_question(question: str, *, require_intent: bool = True) -> PriceP
     else:
         version_candidates = re.findall(r"(?:anno|nel|del|versione|listino)\s+(20\d{2})(?!\d)", normalized)
     versions = tuple(dict.fromkeys(version_candidates))
+    full_dates = re.findall(r"\b20\d{2}-\d{2}-\d{2}\b", normalized)
+    revisions = re.findall(r"\b(?:v(?:er(?:sione)?)?|rev(?:isione)?)\s*\d+(?:\.\d+)*\b", normalized)
+    if full_dates or revisions:
+        versions = tuple(dict.fromkeys(full_dates + [re.sub(r"\s+", "", value) for value in revisions]))
     code_candidates = re.findall(r"\b(?=[A-Za-z0-9./_-]*\d)[A-Za-z0-9]+(?:[./_-][A-Za-z0-9]+)+\b", question)
     code_candidates += re.findall(r"\b(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]+\b", question)
     code_candidates += re.findall(r"(?i)\b(?:codice|cod\.?|sku|articolo|art\.?)\s+([0-9]+)\b", question)
-    codes = tuple(dict.fromkeys(token.casefold() for token in code_candidates if token not in versions))
+    codes = tuple(dict.fromkeys(token.casefold() for token in code_candidates
+                                if token.casefold() not in versions))
     minimum = maximum = None
     number = r"([-+]?\d[\d .]*(?:[,.]\d+)?)"
     below = re.search(rf"(?:meno\s+di|sotto|inferiore\s+a|fino\s+a)\s*{number}", normalized)
@@ -300,26 +321,33 @@ def plan_price_question(question: str, *, require_intent: bool = True) -> PriceP
     between = re.search(rf"(?:tra|da)\s*{number}\s*(?:e|a)\s*{number}", normalized)
     if between:
         between_min, between_max = parse_decimal(between.group(1)), parse_decimal(between.group(2))
+        if between_min is None or between_max is None:
+            return None
         if not (between_min and between_max and 1900 <= between_min <= 2100 and 1900 <= between_max <= 2100):
             minimum, maximum = between_min, between_max
     else:
         maximum = parse_decimal(below.group(1)) if below else None
         minimum = parse_decimal(above.group(1)) if above else None
+        if (below and maximum is None) or (above and minimum is None):
+            return None
 
     words = re.findall(r"[a-z0-9]+", normalized)
     numeric_values = set(versions)
+    reference_words = set(re.findall(r"[a-z0-9]+", " ".join((*versions, *codes))))
     for value in (minimum, maximum):
         if value is not None:
             numeric_values.add(format(value, "f"))
     intent_prefixes = ("prezz", "cost", "listin", "confront", "differ", "variaz", "import", "tariff", "prodott", "articol", "cont", "quant", "minim", "massim")
     terms = tuple(dict.fromkeys(
         word for word in words
-        if len(word) > 1 and word not in _STOPWORDS and word not in numeric_values
+        if len(word) > 1 and word not in _STOPWORDS and word not in numeric_values and word not in reference_words
         and not re.fullmatch(r"\d+(?:[.,]\d+)?", word)
         and not word.startswith(intent_prefixes)
     ))
     intent = "compare" if _COMPARE_INTENT.search(question) else "count" if _COUNT_INTENT.search(question) else "stats" if _STATS_INTENT.search(question) else "lookup"
-    return PricePlan(intent=intent, terms=terms, codes=codes, versions=versions, minimum=minimum, maximum=maximum)
+    return PricePlan(intent=intent, terms=terms, codes=codes, versions=versions, minimum=minimum, maximum=maximum,
+                     minimum_inclusive=not bool(above and above.group(0).split()[0] in ("piu", "sopra", "superiore")),
+                     maximum_inclusive=not bool(below and below.group(0).split()[0] in ("meno", "sotto", "inferiore")))
 
 
 def _matches(row: dict, plan: PricePlan) -> bool:
@@ -328,10 +356,16 @@ def _matches(row: dict, plan: PricePlan) -> bool:
         return False
     if plan.maximum is not None and price > plan.maximum:
         return False
-    if plan.versions and not any(version in _plain(f"{row['version_label']} {row['filename']} {row['effective_date'] or ''}") for version in plan.versions):
+    if plan.minimum is not None and not plan.minimum_inclusive and price == plan.minimum:
+        return False
+    if plan.maximum is not None and not plan.maximum_inclusive and price == plan.maximum:
+        return False
+    if plan.versions and not any(version == _plain(row['version_label']) or
+                                (len(version) == 4 and version == str(row['effective_date'] or '')[:4])
+                                for version in plan.versions):
         return False
     code = _key(row.get("item_code") or "")
-    if plan.codes and not any(_key(candidate) == code or _key(candidate) in code for candidate in plan.codes):
+    if plan.codes and not any(_key(candidate) == code for candidate in plan.codes):
         return False
     haystack = _key(" ".join(str(row.get(field) or "") for field in ("item_code", "description", "price_column")))
     return not plan.terms or all(term in haystack for term in plan.terms)
@@ -400,10 +434,10 @@ def _lookup(rows: list[dict]) -> tuple[str, list[dict]]:
 
 def _count(rows: list[dict]) -> tuple[str, list[dict]]:
     distinct = {(row["document_id"], row["table_ref"], row["row_index"]) for row in rows}
-    grouped: dict[tuple[str, str], set[tuple]] = {}
+    grouped: dict[str, set[tuple]] = {}
     representative = {}
     for row in rows:
-        key = (row["filename"], row["version_label"])
+        key = row["document_id"]
         grouped.setdefault(key, set()).add((row["table_ref"], row["row_index"]))
         representative[key] = row
     total_label = "riga di listino" if len(distinct) == 1 else "righe di listino"
@@ -411,7 +445,8 @@ def _count(rows: list[dict]) -> tuple[str, list[dict]]:
     sources = []
     for index, (key, items) in enumerate(grouped.items(), 1):
         row_label = "riga" if len(items) == 1 else "righe"
-        lines.append(f"- {key[0]} — versione {key[1]}: **{len(items)}** {row_label} [{index}]")
+        row = representative[key]
+        lines.append(f"- {row['filename']} — versione {row['version_label']}: **{len(items)}** {row_label} [{index}]")
         sources.append(_source(representative[key], text=f"Conteggio strutturato: {len(items)} {row_label} di listino"))
     return "\n".join(lines), sources
 
@@ -420,11 +455,15 @@ def _compare(rows: list[dict]) -> tuple[str, list[dict]] | None:
     groups: dict[tuple, list[dict]] = {}
     for row in rows:
         item = _key(row.get("item_code") or row.get("description") or "")
-        groups.setdefault((row["series_key"], item, row["price_column"], row["currency"]), []).append(row)
+        groups.setdefault((row["series_key"], item, row["price_column"], row["currency"], row["unit"]), []).append(row)
     comparisons = []
     for entries in groups.values():
-        by_version = {entry["document_id"]: entry for entry in entries}
-        ordered = sorted(by_version.values(), key=_version_sort)
+        # Duplicate item rows within a version are ambiguous, even if prices agree.
+        if len({entry["document_id"] for entry in entries}) != len(entries):
+            continue
+        if len({entry["version_label"] for entry in entries}) != len(entries):
+            continue
+        ordered = sorted(entries, key=_version_sort)
         if len(ordered) >= 2:
             comparisons.append((ordered[0], ordered[-1]))
     if not comparisons:
@@ -448,17 +487,18 @@ def _compare(rows: list[dict]) -> tuple[str, list[dict]] | None:
 
 
 def _stats(rows: list[dict]) -> tuple[str, list[dict]]:
-    grouped: dict[str | None, list[dict]] = {}
+    grouped: dict[tuple, list[dict]] = {}
     for row in rows:
-        grouped.setdefault(row["currency"], []).append(row)
+        grouped.setdefault((row["document_id"], row["price_column"], row["currency"], row["unit"]), []).append(row)
     lines = ["Statistiche calcolate sui valori strutturati:"]
     sources = []
-    for currency, entries in grouped.items():
+    for (_, column, currency, unit), entries in grouped.items():
         values = [Decimal(entry["price_value"]) for entry in entries]
         minimum, maximum = min(values), max(values)
         average = sum(values) / len(values)
         lines.append(
-            f"- {len(entries)} valori {currency or 'senza valuta indicata'}: minimo **{_money(minimum, currency)}**, "
+            f"- {entries[0]['filename']} — {entries[0]['version_label']}, {column}"
+            f"{f'/{unit}' if unit else ''}, {len(entries)} valori {currency or 'senza valuta indicata'}: minimo **{_money(minimum, currency)}**, "
             f"massimo **{_money(maximum, currency)}**, media **{_money(average, currency)}**."
         )
         for target in (minimum, maximum):
@@ -467,28 +507,49 @@ def _stats(rows: list[dict]) -> tuple[str, list[dict]]:
     return "\n".join(lines), sources
 
 
-def query_price_lists(question: str, knowledge_id: str, *, current_question: str | None = None) -> dict | None:
+def query_price_lists(question: str, knowledge_id: str, *, current_question: str | None = None,
+                      document_ids: set[str] | None = None) -> dict | None:
     plan = plan_price_question(question)
     if plan is None:
         return None
     if current_question and current_question != question:
+        # A self-contained non-price question must not inherit a previous numeric intent.
+        if not plan_price_question(current_question) and len(current_question.split()) > 4:
+            return None
         current = plan_price_question(current_question, require_intent=False)
         if current:
             current_has_intent = bool(
                 _PRICE_INTENT.search(current_question) or _COUNT_INTENT.search(current_question)
                 or _COMPARE_INTENT.search(current_question) or _STATS_INTENT.search(current_question)
             )
-            plan = replace(
-                plan,
-                intent=current.intent if current_has_intent else plan.intent,
-                terms=current.terms or plan.terms,
-                codes=current.codes or plan.codes,
-                versions=current.versions or plan.versions,
-                minimum=current.minimum if current.minimum is not None else plan.minimum,
-                maximum=current.maximum if current.maximum is not None else plan.maximum,
-            )
-    rows = [row for row in _load_entries(knowledge_id) if _matches(row, plan)]
+            follow_up = bool(re.match(r"\s*(?:e\b|invece\b|nel\b|nella\b)", _plain(current_question)))
+            inherits_target = current.intent in ("lookup", "compare") and not (current.codes or current.terms)
+            if current_has_intent and not follow_up and not inherits_target:
+                plan = current
+            else:
+                plan = replace(
+                    plan,
+                    intent=current.intent if current_has_intent else plan.intent,
+                    terms=current.terms or plan.terms,
+                    codes=current.codes or plan.codes,
+                    versions=current.versions or plan.versions,
+                    minimum=current.minimum if current.minimum is not None else plan.minimum,
+                    maximum=current.maximum if current.maximum is not None else plan.maximum,
+                    minimum_inclusive=current.minimum_inclusive if current.minimum is not None else plan.minimum_inclusive,
+                    maximum_inclusive=current.maximum_inclusive if current.maximum is not None else plan.maximum_inclusive,
+                )
+    visible_rows = [row for row in _load_entries(knowledge_id)
+                    if document_ids is None or row["document_id"] in document_ids]
+    rows = [row for row in visible_rows if _matches(row, plan)]
     if not rows:
+        if plan.intent == "count" and (plan.minimum is not None or plan.maximum is not None):
+            population = [row for row in visible_rows if _matches(row, replace(plan, minimum=None, maximum=None))]
+            if population:
+                source_rows = {row["document_id"]: row for row in population}
+                sources = [_source(row, text="Listino esaminato: nessuna riga soddisfa la soglia richiesta.")
+                           for row in source_rows.values()]
+                return {"answer": "Il conteggio verificato è **0 righe di listino** che soddisfano la soglia richiesta.",
+                        "sources": sources, "rows_matched": 0, "intent": "count"}
         return None
     if plan.intent == "count":
         answer, sources = _count(rows)

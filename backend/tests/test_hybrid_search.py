@@ -1,5 +1,6 @@
 """Hybrid semantic/lexical retrieval and safe index migration."""
 from qdrant_client import QdrantClient, models
+import pytest
 
 from app.core import chat
 from app.hybrid_reindex import migrate_collection
@@ -74,3 +75,41 @@ def test_dense_collection_migration_preserves_points_and_keeps_backup(tmp_path):
     ).points
     assert found[0].payload["text"] == "Determina 42/2025"
     assert found[0].payload["lexical_index_version"] == 1
+
+
+def test_unpublished_documents_never_reach_hybrid_context(monkeypatch, tmp_path):
+    current = client(tmp_path)
+    create_hybrid(current, "kb_test")
+    current.upsert("kb_test", [
+        models.PointStruct(id=number, vector=hybrid_vector([1., 0., 0.], "Codice 001-A"),
+                           payload={"text": "Codice 001-A", "filename": f"{doc}.pdf", "document_id": doc})
+        for number, doc in enumerate(("published", "pending"), 1)
+    ])
+    monkeypatch.setattr(chat, "get_client", lambda: current)
+    monkeypatch.setattr(chat, "get_collection_name", lambda _: "kb_test")
+    monkeypatch.setattr(chat, "published_document_ids", lambda _: {"published"})
+    monkeypatch.setattr(chat, "get_query_embedding", lambda _: [1., 0., 0.])
+    contexts = chat.retrieve_context("Codice 001-A", knowledge_id="kb", use_mmr=False)
+    assert contexts and {item["document_id"] for item in contexts} == {"published"}
+
+
+def test_empty_knowledge_never_calls_embeddings(monkeypatch):
+    monkeypatch.setattr(chat, "published_document_ids", lambda _: set())
+    monkeypatch.setattr(chat, "get_query_embedding", lambda _: (_ for _ in ()).throw(AssertionError("No published documents")))
+    assert chat.retrieve_context("Codice 001-A", knowledge_id="kb") == []
+
+
+def test_failed_hybrid_migration_restores_original_dense_collection(monkeypatch, tmp_path):
+    from app import hybrid_reindex
+    current = client(tmp_path)
+    current.create_collection("documents", vectors_config=models.VectorParams(size=3, distance=models.Distance.COSINE))
+    current.upsert("documents", [models.PointStruct(id=1, vector=[1., 0., 0.], payload={"text": "Originale 42/2025"})])
+    def fail(*args, **kwargs):
+        raise RuntimeError("simulated sparse indexing failure")
+    monkeypatch.setattr(hybrid_reindex, "_copy_hybrid", fail)
+    with pytest.raises(RuntimeError, match="simulated sparse"):
+        migrate_collection(current, "documents")
+    assert not collection_supports_hybrid(current, "documents")
+    assert current.count("documents", exact=True).count == 1
+    assert current.retrieve("documents", [1])[0].payload["text"] == "Originale 42/2025"
+    assert any("__dense_backup_" in item.name for item in current.get_collections().collections)

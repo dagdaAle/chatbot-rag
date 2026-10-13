@@ -21,6 +21,9 @@ Anchor della stessa sezione vengono riuniti una sola volta. Pagine, regioni di
 provenienza e contenuto tabellare restano associati alla fonte aggregata. La risposta
 API espone `context_scope`, `section_complete` ed `expanded_chunks`, così interfaccia
 e log possono mostrare come è stato costruito il contesto.
+Quando una sezione è incompleta, un secondo anchor distante può produrre un altro
+estratto, così i limiti non nascondono un passaggio pertinente. Anche un primo chunk
+più grande dei limiti viene troncato al budget ed etichettato come incompleto.
 
 ## Limiti configurabili
 

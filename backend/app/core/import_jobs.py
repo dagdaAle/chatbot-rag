@@ -133,7 +133,9 @@ def _delete_vectors(client, collection_name: str, document_id: str) -> None:
 def _cleanup_partial(job: dict, client, collection_name: str) -> None:
     first_error = None
     for cleanup in (
-        lambda: privileged("DELETE", "/rest/v1/documents", params={"document_id": f"eq.{job['document_id']}"}),
+        lambda: privileged("DELETE", "/rest/v1/documents", params={
+            "document_id": f"eq.{job['document_id']}", "knowledge_id": f"eq.{job['knowledge_id']}",
+        }),
         lambda: _delete_vectors(client, collection_name, job["document_id"]),
         lambda: delete_price_document(job["document_id"]),
         lambda: delete_pdf_from_disk(job["knowledge_id"], job["document_id"]),
@@ -171,6 +173,7 @@ def process_job(job: dict, worker: str) -> None:
         if len(content) != job["size_bytes"]:
             raise ValueError("Il PDF in attesa è incompleto o è stato modificato.")
         ensure_collection_for_kb(client, collection_name)
+        heartbeat.set(stage=state.stage, progress=state.progress)
         _cleanup_partial(job, client, collection_name)
 
         def progress(stage, value, structure=None, chunks_count=None):
@@ -217,7 +220,13 @@ def process_job(job: dict, worker: str) -> None:
         logger.error("Import job %s failed:\n%s", job_id, traceback.format_exc())
         try:
             if client is not None:
+                # Revalidate ownership with the database before deleting artifacts;
+                # another worker may have reclaimed the job during a long failure.
+                heartbeat.set(stage=state.stage, progress=state.progress)
                 _cleanup_partial(job, client, collection_name)
+        except LostLease:
+            logger.warning("Pulizia saltata per il job %s: lease già riassegnata", job_id)
+            raise
         except Exception:
             logger.exception("Pulizia del job %s non riuscita", job_id)
         heartbeat.stop()

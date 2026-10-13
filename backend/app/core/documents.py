@@ -21,6 +21,22 @@ EXTRACTED_DIR = DATA_DIR / "extracted"
 IMPORTS_DIR = DATA_DIR / "imports"
 
 
+def published_document_ids(knowledge_id: str) -> set[str]:
+    """Read the publication boundary through the caller's RLS-scoped JWT."""
+    from app.core.supabase import identifier, rest
+    output: set[str] = set()
+    offset = 0
+    while True:
+        rows = rest("GET", "documents", params={
+            "knowledge_id": f"eq.{identifier(knowledge_id)}", "select": "document_id",
+            "order": "document_id.asc", "limit": "1000", "offset": str(offset),
+        })
+        output.update(row["document_id"] for row in rows)
+        if len(rows) < 1000:
+            return output
+        offset += len(rows)
+
+
 def get_structure_path(knowledge_id: str, document_id: str) -> Path:
     from app.core.supabase import identifier
     return EXTRACTED_DIR / identifier(knowledge_id) / f"{identifier(document_id)}.json"

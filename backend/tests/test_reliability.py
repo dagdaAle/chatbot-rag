@@ -65,6 +65,7 @@ def test_threshold_is_respected(monkeypatch):
 
 
 def test_follow_up_uses_history_and_sources_keep_kb(monkeypatch):
+    monkeypatch.setattr(chat, 'published_document_ids', lambda _: {'d'})
     captured = {}
     def retrieve(query, **kwargs):
         captured['query'] = query

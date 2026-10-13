@@ -117,3 +117,22 @@ def test_unstructured_document_uses_adjacent_chunks(tmp_path):
     assert result[0]["expanded_chunks"] == 3
     assert "pagina 0" not in result[0]["text"]
     assert all(f"pagina {index}" in result[0]["text"] for index in (1, 2, 3))
+
+
+def test_incomplete_section_keeps_a_second_distant_anchor(tmp_path):
+    chunks = section_chunks()
+    for index in range(3):
+        chunks[index]["text"] += " " + str(index) * 120
+    current = collection(tmp_path, chunks)
+    result = expand_hierarchical_contexts(current, "documents", [anchor(chunk_index=0), anchor(chunk_index=2)],
+        section_char_limit=190, total_char_limit=500, neighbor_chunks=1)
+    assert len(result) == 2
+    assert "primo frammento" in result[0]["text"] and "terzo frammento" in result[1]["text"]
+
+
+def test_oversized_first_anchor_respects_global_budget(tmp_path):
+    current = collection(tmp_path, [])
+    result = expand_hierarchical_contexts(current, "documents", [anchor(text="x" * 1000)],
+        section_char_limit=200, total_char_limit=100, neighbor_chunks=1)
+    assert len(result[0]["text"]) <= 100
+    assert result[0]["section_complete"] is False

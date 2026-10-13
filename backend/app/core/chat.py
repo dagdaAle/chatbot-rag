@@ -13,6 +13,7 @@ from app.core.hierarchical import expand_hierarchical_contexts
 from app.core.qdrant_client import COLLECTION_NAME, collection_supports_hybrid, get_client
 from app.core.lexical import LEXICAL_VECTOR_NAME, sparse_text_vector
 from app.core.price_lists import query_price_lists
+from app.core.documents import published_document_ids
 from app.core.knowledge import get_collection_name, get_knowledge
 from app.core.ollama_client import generate_chat_response as ollama_generate_chat_response
 
@@ -190,12 +191,21 @@ def retrieve_context(
     score_threshold: float = 0.3,
     use_mmr: bool = True,
     lexical_query: str | None = None,
+    document_ids: set[str] | None = None,
 ) -> list[dict]:
     """Cerca chunk con fusione semantica/lessicale e diversificazione MMR.
 
     Se knowledge_id è fornito cerca nella collezione della knowledge,
     altrimenti usa la collezione legacy.
     """
+    from qdrant_client import models
+    if knowledge_id and document_ids is None:
+        document_ids = published_document_ids(knowledge_id)
+    if document_ids is not None and not document_ids:
+        return []
+    published_filter = models.Filter(must=[models.FieldCondition(
+        key="document_id", match=models.MatchAny(any=sorted(document_ids)),
+    )]) if document_ids is not None else None
     query_vector = get_query_embedding(query)
     client = get_client()
 
@@ -218,23 +228,25 @@ def retrieve_context(
         hybrid_enabled = False
 
     if hybrid_enabled:
-        from qdrant_client import models
         sparse_query = sparse_text_vector(lexical_query or query)
         prefetch = [models.Prefetch(
             query=query_vector,
             limit=search_limit,
             score_threshold=score_threshold,
+            filter=published_filter,
         )]
         if sparse_query.indices:
             prefetch.append(models.Prefetch(
                 query=sparse_query,
                 using=LEXICAL_VECTOR_NAME,
                 limit=search_limit,
+                filter=published_filter,
             ))
         if len(prefetch) == 1:
             response = client.query_points(
                 collection_name=collection_name,
                 query=query_vector,
+                query_filter=published_filter,
                 limit=search_limit,
                 score_threshold=score_threshold,
                 with_payload=True,
@@ -245,6 +257,7 @@ def retrieve_context(
                 collection_name=collection_name,
                 prefetch=prefetch,
                 query=models.FusionQuery(fusion=models.Fusion.RRF),
+                query_filter=published_filter,
                 limit=search_limit,
                 with_payload=True,
                 with_vectors=use_mmr,
@@ -256,6 +269,7 @@ def retrieve_context(
         results = client.search(
             collection_name=collection_name,
             query_vector=query_vector,
+            query_filter=published_filter,
             limit=search_limit,
             with_payload=True,
             with_vectors=use_mmr,
@@ -410,10 +424,12 @@ def chat(
             break
     previous_questions = [m["content"] for m in history if m.get("role") == "user"][-2:]
     retrieval_query = "\n".join(previous_questions + [question])
+    document_ids = published_document_ids(knowledge_id) if knowledge_id else None
     structured = query_price_lists(
         "\n".join(previous_questions + [question]),
         knowledge_id,
         current_question=question,
+        document_ids=document_ids,
     ) if knowledge_id else None
     if structured:
         contexts = structured["sources"]
@@ -425,6 +441,7 @@ def chat(
             knowledge_id=knowledge_id,
             score_threshold=score_threshold,
             lexical_query=question,
+            document_ids=document_ids,
         )
         answer = generate_response(question, contexts, history, provider=provider, model=model)
 

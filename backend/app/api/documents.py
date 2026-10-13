@@ -15,7 +15,6 @@ from app.core.documents import (
 from app.core.knowledge import get_knowledge, get_collection_name
 from app.core.qdrant_client import get_client
 from app.core.supabase import rest, identifier
-from app.auth import request_user
 
 router = APIRouter(prefix="/api/knowledge", tags=["documents"])
 
@@ -50,14 +49,14 @@ async def upload_documents(
             continue
 
         filename = file.filename or "documento.pdf"
-        job_id, doc_id = str(uuid.uuid4()), str(uuid.uuid4())
+        job_id = str(uuid.uuid4())
         created = None
         try:
             save_import_pdf(content, knowledge_id, job_id)
             try:
                 created = rest("POST", "import_jobs", body={
-                    "id": job_id, "document_id": doc_id, "knowledge_id": identifier(knowledge_id),
-                    "created_by": request_user.get().id, "filename": filename, "size_bytes": len(content),
+                    "id": job_id, "knowledge_id": identifier(knowledge_id),
+                    "filename": filename, "size_bytes": len(content),
                 })
             finally:
                 if created is None:
@@ -88,7 +87,7 @@ def list_documents(knowledge_id: str) -> dict:
     rows = rest('GET', 'documents', params={'knowledge_id': f'eq.{kb_id}', 'order':'uploaded_at.asc'})
     jobs = rest('GET', 'import_jobs', params={
         'knowledge_id': f'eq.{kb_id}', 'status': 'in.(queued,running,failed)',
-        'order': 'created_at.desc', 'limit': '50',
+        'order': 'status.desc,created_at.desc', 'limit': '50',
     })
     return {"documents": rows, "jobs": jobs, "total": len(rows)}
 

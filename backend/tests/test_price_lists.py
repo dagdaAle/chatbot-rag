@@ -38,6 +38,10 @@ def test_decimal_parser_is_exact_and_rejects_text():
     assert price_lists.parse_decimal("1,234.56 USD") == Decimal("1234.56")
     assert price_lists.parse_decimal("12,50 circa") is None
     assert price_lists.parse_decimal("") is None
+    assert price_lists.parse_decimal("1.234") is None
+    assert price_lists.parse_decimal("1,234") is None
+    assert price_lists.parse_decimal("1.2.3,45") is None
+    assert price_lists.parse_decimal("12,34,56") is None
     assert price_lists.plan_price_question("Quanto costa il codice 00123?").codes == ("00123",)
 
 
@@ -117,6 +121,7 @@ def test_reindex_replaces_document_rows_atomically(monkeypatch, tmp_path):
 
 def test_chat_uses_deterministic_structured_answer_without_llm(monkeypatch):
     from app.core import chat
+    monkeypatch.setattr(chat, "published_document_ids", lambda _: {"doc"})
     structured_source = {
         "filename": "listino.pdf", "document_id": "doc", "text": "001-A | 12,50",
         "chunk_index": 1, "page_start": 3, "page_end": 3, "score": 1.0,
@@ -134,3 +139,92 @@ def test_chat_uses_deterministic_structured_answer_without_llm(monkeypatch):
     assert result["answer"] == "Il prezzo verificato è 12,50 EUR [1]"
     assert result["sources"][0]["verified_data"] is True
     assert result["structured_intent"] == "lookup"
+
+
+def test_thresholds_are_strict_and_codes_are_exact(monkeypatch, tmp_path):
+    isolated_db(monkeypatch, tmp_path)
+    price_lists.index_price_document(structure(("20,00", "21,00")), "kb-1", "doc", "Listino 2025.pdf")
+    assert price_lists.query_price_lists("Prezzi meno di 20 euro", "kb-1") is None
+    assert price_lists.query_price_lists("Prezzi fino a 20 euro", "kb-1")["rows_matched"] == 1
+    assert price_lists.query_price_lists("Prezzi sopra 20 euro", "kb-1")["rows_matched"] == 1
+    assert price_lists.query_price_lists("Prezzi almeno 20 euro", "kb-1")["rows_matched"] == 2
+    assert price_lists.query_price_lists("Quanto costa 001-A1?", "kb-1") is None
+    assert price_lists.query_price_lists("Quanto costa il codice 001-A?", "kb-1")["rows_matched"] == 1
+    zero = price_lists.query_price_lists("Quanti prodotti costano meno di 20 euro?", "kb-1")
+    assert zero and "**0 righe di listino**" in zero["answer"] and zero["sources"]
+    assert price_lists.query_price_lists("Quanti prodotti costano meno di 1.234 euro?", "kb-1") is None
+
+
+def test_ambiguous_currency_and_non_monetary_values_are_not_prices(monkeypatch, tmp_path):
+    isolated_db(monkeypatch, tmp_path)
+    conflicting = structure(("12,50 USD", "21,00 USD"))
+    assert price_lists.index_price_document(conflicting, "kb", "doc", "Listino.pdf") == 0
+    conflicting["blocks"][0]["rows"][0]["cells"][2] = "Valore di rischio"
+    conflicting["blocks"][0]["rows"][1]["cells"][2] = "1"
+    conflicting["blocks"][0]["rows"][2]["cells"][2] = "2"
+    assert price_lists.index_price_document(conflicting, "kb", "doc", "Rischio.pdf") == 0
+
+
+def test_queries_exclude_unpublished_and_other_knowledge_documents(monkeypatch, tmp_path):
+    isolated_db(monkeypatch, tmp_path)
+    price_lists.index_price_document(structure(), "kb-1", "doc-pending", "Listino 2026.pdf")
+    price_lists.index_price_document(structure(), "kb-2", "doc-other", "Listino 2026.pdf")
+    assert price_lists.query_price_lists("Quanto costa 001-A?", "kb-1", document_ids=set()) is None
+    assert price_lists.query_price_lists("Quanto costa 001-A?", "kb-2", document_ids={"doc-pending"}) is None
+
+
+def test_specific_revision_and_full_date_do_not_match_other_versions(monkeypatch, tmp_path):
+    isolated_db(monkeypatch, tmp_path)
+    for version in ("rev2", "rev20", "2026-10-01", "2026-10-02"):
+        price_lists.index_price_document(structure(), "kb-1", version, f"Listino {version}.pdf")
+    revision = price_lists.query_price_lists("Prezzo 001-A versione rev2", "kb-1")
+    date = price_lists.query_price_lists("Prezzo 001-A del 2026-10-01", "kb-1")
+    assert revision and revision["rows_matched"] == 1
+    assert date and date["rows_matched"] == 1
+
+
+def test_comparison_refuses_changed_units_and_duplicate_rows(monkeypatch, tmp_path):
+    isolated_db(monkeypatch, tmp_path)
+    original, changed = structure(), structure()
+    changed["blocks"][0]["rows"][1]["cells"][3] = "tonnellata"
+    price_lists.index_price_document(original, "kb-1", "old", "Listino 2025.pdf")
+    price_lists.index_price_document(changed, "kb-1", "new", "Listino 2026.pdf")
+    question = "Confronta il prezzo 001-A tra 2025 e 2026"
+    assert price_lists.query_price_lists(question, "kb-1") is None
+    duplicate = dict(original["blocks"][0]["rows"][1], row_index=3)
+    original["blocks"][0]["rows"].append(duplicate)
+    price_lists.index_price_document(original, "kb-1", "new", "Listino 2026.pdf")
+    assert price_lists.query_price_lists(question, "kb-1") is None
+
+
+def test_stats_do_not_mix_units_columns_or_versions(monkeypatch, tmp_path):
+    isolated_db(monkeypatch, tmp_path)
+    price_lists.index_price_document(structure(second_price_column=True), "kb-1", "old", "Listino 2025.pdf")
+    price_lists.index_price_document(structure(second_price_column=True), "kb-1", "new", "Listino 2026.pdf")
+    result = price_lists.query_price_lists("Qual è il prezzo medio?", "kb-1")
+    assert result and result["answer"].count("minimo") == 8
+
+
+def test_a_new_non_price_question_does_not_inherit_numeric_intent(monkeypatch, tmp_path):
+    isolated_db(monkeypatch, tmp_path)
+    price_lists.index_price_document(structure(), "kb-1", "doc", "Listino 2025.pdf")
+    assert price_lists.query_price_lists(
+        "Quanto costa 001-A?\nSpiega come compilare la domanda di adesione",
+        "kb-1", current_question="Spiega come compilare la domanda di adesione",
+    ) is None
+    new_count = "Quanti prodotti costano meno di 30 euro?"
+    result = price_lists.query_price_lists("Quanto costa 001-A?\n" + new_count, "kb-1", current_question=new_count)
+    assert result and "**2 righe di listino**" in result["answer"]
+
+
+def test_reindex_paginates_all_documents(monkeypatch):
+    from app import price_reindex
+    rows = [{"document_id": str(index)} for index in range(1001)]
+    calls = []
+    def privileged(method, path, *, params):
+        calls.append(params)
+        offset = int(params["offset"])
+        return rows[offset:offset + 1000]
+    monkeypatch.setattr(price_reindex, "privileged", privileged)
+    assert list(price_reindex.published_documents()) == rows
+    assert [call["offset"] for call in calls] == ["0", "1000"]

@@ -175,7 +175,6 @@ def expand_hierarchical_contexts(
 
             if scope_key in seen_scopes:
                 continue
-            seen_scopes.add(scope_key)
             remaining = total_char_limit - used
             if remaining <= 0:
                 break
@@ -189,8 +188,18 @@ def expand_hierarchical_contexts(
                 if chosen else
                 {**anchor, "context_scope": "chunk", "section_complete": False, "expanded_chunks": 1}
             )
+            # An incomplete expansion must not suppress another distant anchor
+            # in the same section. Only collapse expansions that were fully included.
+            if complete:
+                seen_scopes.add(scope_key)
 
         size = len(str(candidate.get("text", "")))
+        limit = min(section_char_limit, total_char_limit - used)
+        if limit <= 0:
+            break
+        if size > limit:
+            candidate = {**candidate, "text": str(candidate["text"])[:limit], "section_complete": False}
+            size = limit
         if expanded and used + size > total_char_limit:
             continue
         expanded.append(candidate)
