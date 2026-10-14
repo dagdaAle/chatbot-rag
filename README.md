@@ -15,23 +15,28 @@ Chatbot RAG avanzato con supporto per documenti PDF, chunking semantico e divers
 - **Recupero gerarchico**: il chunk trovato viene ampliato all'articolo o alla sezione Docling completa, entro un budget configurabile
 - **Listini strutturati**: prezzi, conteggi, statistiche e confronti fra versioni sono calcolati su celle tipizzate con provenienza verificabile
 - **Risultati diversificati**: MMR (Maximum Marginal Relevance) riduce i chunk duplicati
-- **Provider multipli**: supporto per OpenAI e Ollama
+- **Provider multipli**: DeepSeek e OpenAI con protezione obbligatoria, Ollama locale
+- **Protezione dati**: domanda, cronologia e fonti passano dall’Anonymizer prima del modello esterno; ripristino della risposta nel backend
 - **Filtro per score**: filtraggio automatico di chunk poco rilevanti
 - **Citazioni precise**: risposte con citazioni verbatim dai documenti
 
 ## Provider supportati
 
 ### Chat
+- **DeepSeek**: provider esterno predefinito
 - **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4-turbo, GPT-3.5-turbo
 - **Ollama**: modelli locali compatibili
 
 ### Embeddings
-- **OpenAI**: text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
 - **Ollama**: nomic-embed-text, mxbai-embed-large, all-minilm
 
-*Nota: chat e embeddings possono usare provider diversi (es. Ollama + OpenAI embeddings)*
+*Gli embedding restano locali con Ollama. Le chiamate chat esterne richiedono
+l’Anonymizer configurato: [configurazione e deploy](docs/PRIVACY_PIPELINE.md).*
 
 ## Avvio rapido
+
+Configurare prima `.env`, includendo token Anonymizer condiviso e chiave Fernet
+esclusiva del servizio. La chiave non viene passata al backend.
 
 ```bash
 docker compose up -d
@@ -71,17 +76,20 @@ cp .env.example .env
 
 ```env
 # Provider per chat
-LLM_PROVIDER=openai  # openai, ollama
+LLM_PROVIDER=deepseek  # deepseek, openai, ollama
 
 # OpenAI
 OPENAI_API_KEY=sk-...
 OPENAI_CHAT_MODEL=gpt-4o-mini
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_PROVIDER=ollama
 
 
 # Ollama (locale)
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 ```
+
+La chat esterna richiede anche `ANONYMIZER_URL` e `ANONYMIZER_TOKEN`, come
+descritto in [docs/PRIVACY_PIPELINE.md](docs/PRIVACY_PIPELINE.md).
 
 ## Struttura
 

@@ -1,4 +1,17 @@
 services:
+  anonymizer:
+    build: ./services/anonymizer
+    environment:
+      - ANONYMIZER_TOKEN=${ANONYMIZER_TOKEN:-}
+      - ANONYMIZER_KEY=${ANONYMIZER_KEY:-}
+      - DEVICE=auto
+      - MAPPING_TTL_SECONDS=900
+    volumes:
+      - anonymizer_data:/data
+    networks:
+      - chatbot-net
+    restart: on-failure
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: chatbot-qdrant
@@ -24,6 +37,11 @@ services:
       - QDRANT_PORT=6333
       - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
       - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
+      - ANONYMIZER_URL=http://anonymizer:8000
+      - ANONYMIZER_TOKEN=${ANONYMIZER_TOKEN:-}
+      - ANONYMIZER_CONNECT_TIMEOUT=${ANONYMIZER_CONNECT_TIMEOUT:-5}
+      - ANONYMIZER_READ_TIMEOUT=${ANONYMIZER_READ_TIMEOUT:-120}
+      - ANONYMIZER_MAX_CHARS=${ANONYMIZER_MAX_CHARS:-200000}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEEPSEEK_CHAT_MODEL=${DEEPSEEK_CHAT_MODEL:-deepseek-flash}
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
@@ -100,6 +118,7 @@ services:
     tty: true
 
 volumes:
+  anonymizer_data:
   qdrant_storage:
   backend_data:
 

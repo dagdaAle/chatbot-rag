@@ -16,6 +16,7 @@ from app.core.price_lists import query_price_lists
 from app.core.documents import published_document_ids
 from app.core.knowledge import get_collection_name, get_knowledge
 from app.core.ollama_client import generate_chat_response as ollama_generate_chat_response
+from app.core.privacy import protected_request, PrivacyError
 
 _openai_client: OpenAI | None = None
 _deepseek_client: OpenAI | None = None
@@ -348,11 +349,14 @@ def generate_response(
     """Genera una risposta usando OpenAI o Ollama con il contesto recuperato e la cronologia."""
     if not contexts:
         return "Non ho trovato passaggi sufficientemente pertinenti nei documenti disponibili. Prova a riformulare la domanda."
+    provider = provider or runtime_config.chat_provider
+    model = model or runtime_config.chat_model
 
     # Costruisci il contesto formattato dai documenti
     context_parts = []
     for i, ctx in enumerate(contexts, 1):
-        header = f"Documento: {ctx['filename']}"
+        # Filenames can contain personal data; citations use local source numbers.
+        header = f"Documento: {ctx['filename']}" if provider == "ollama" else f"Fonte {i}"
         if ctx.get("section_path"):
             header += f" | Sezione: {' > '.join(ctx['section_path'])}"
         if ctx.get("context_scope") == "section":
@@ -389,17 +393,20 @@ Domanda dell'utente: {question}"""
     messages.append({"role": "user", "content": user_message})
 
     from app.core.usage import measure
-    provider = provider or runtime_config.chat_provider
-    model = model or runtime_config.chat_model
     with measure(provider, model, 'chat') as usage:
         if provider == 'ollama':
             return ollama_generate_chat_response(messages, model=model, usage=usage)
         client = _get_deepseek_client() if provider == 'deepseek' else _get_openai_client()
         options = {'extra_body': {'thinking': {'type': 'disabled'}}} if provider == 'deepseek' else {}
-        response = client.chat.completions.create(**options, model=model, messages=messages, temperature=0.3, max_tokens=1500)
-        if response.usage:
-            usage.update(input_tokens=response.usage.prompt_tokens, output_tokens=response.usage.completion_tokens)
-        return response.choices[0].message.content or ''
+        with protected_request(messages) as protected:
+            try:
+                response = client.chat.completions.create(**options, model=model, messages=protected.messages, temperature=0.3, max_tokens=1500)
+            except Exception:
+                # SDK errors can echo request data or headers in their bodies.
+                raise PrivacyError("Il modello esterno non è disponibile. Riprova più tardi.") from None
+            if response.usage:
+                usage.update(input_tokens=response.usage.prompt_tokens, output_tokens=response.usage.completion_tokens)
+            return protected.restore(response.choices[0].message.content or '')
 
 
 def chat(

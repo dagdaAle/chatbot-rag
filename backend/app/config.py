@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     retrieval_section_max_chars: int = Field(default=18000, ge=2000, le=100000)
     retrieval_total_max_chars: int = Field(default=48000, ge=4000, le=200000)
     retrieval_neighbor_chunks: int = Field(default=1, ge=0, le=5)
+    # External chat always requires protection; no runtime/user bypass.
+    anonymizer_url: str = "http://anonymizer:8000"
+    anonymizer_token: str = ""
+    anonymizer_connect_timeout: float = Field(default=5, gt=0, le=30)
+    anonymizer_read_timeout: float = Field(default=120, gt=0, le=300)
+    anonymizer_max_chars: int = Field(default=200000, ge=8000, le=200000)
     
     # Provider LLM: "openai" o "ollama"
     llm_provider: str = "deepseek"
@@ -70,7 +76,7 @@ class RuntimeConfig:
     """Configurazione runtime modificabile e persistita in DATA_DIR.
     
     Chat e embedding hanno provider INDIPENDENTI:
-    - Puoi usare Ollama per la chat e OpenAI per gli embedding (o viceversa).
+    - La chat può usare provider esterni protetti; gli embedding devono restare locali.
     """
 
     def __init__(self) -> None:

@@ -1,0 +1,8 @@
+fastapi==0.115.7
+uvicorn[standard]==0.34.0
+presidio-analyzer==2.2.358
+cryptography==44.0.0
+gliner==0.2.29
+transformers==4.51.3
+sentencepiece==0.2.0
+protobuf==5.29.3

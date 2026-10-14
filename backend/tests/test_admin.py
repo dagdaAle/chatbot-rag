@@ -119,3 +119,24 @@ def test_personal_usage_remains_rls_scoped(client):
 def test_password_policy_validated(client):
     test_client,state=client
     assert test_client.post('/api/admin/users',json={'email':'bad','password':'short'}).status_code==422
+
+
+def test_privacy_failure_returns_503_without_saving_turn(client, monkeypatch):
+    from app.api import chat
+    from app.core import knowledge
+    from app.core.privacy import PrivacyError
+    test_client, state = client
+    events = []
+    monkeypatch.setattr(knowledge, 'get_knowledge', lambda value: object())
+    def fail(*args, **kwargs):
+        raise PrivacyError('Servizio di protezione dei dati non disponibile. Riprova più tardi.')
+    monkeypatch.setattr(chat, 'rag_chat', fail)
+    monkeypatch.setattr(chat, 'create_conversation', lambda *args: pytest.fail('failed response must not create conversation'))
+    monkeypatch.setattr(chat, 'save_turn', lambda *args: pytest.fail('failed response must not be stored'))
+    def privileged(method, path, **kwargs):
+        events.append((method, path, kwargs))
+        return str(uuid4())
+    monkeypatch.setattr(admin, 'privileged', privileged)
+    response = test_client.post('/api/chat', json={'question': 'test', 'knowledge_id': str(uuid4()), 'model_key': 'ollama:allowed'})
+    assert response.status_code == 503 and 'protezione' in response.json()['detail']
+    assert events[-1][2]['body']['error_code'] == 'PrivacyError'

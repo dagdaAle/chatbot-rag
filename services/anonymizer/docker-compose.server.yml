@@ -1,0 +1,29 @@
+# Anonymizer sul server: stessa forma di sbobina (compose a mano, rete
+# `coolify`, GPU riservata), ma SENZA etichette Traefik e senza porte:
+# raggiungibile solo dai container sulla rete coolify come anonymizer:8000.
+services:
+  anonymizer:
+    build: .
+    image: anonymizer:latest
+    container_name: anonymizer
+    env_file:
+      - .env
+    volumes:
+      - anonymizer-data:/data
+    networks:
+      - coolify
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+networks:
+  coolify:
+    external: true
+
+volumes:
+  anonymizer-data:
