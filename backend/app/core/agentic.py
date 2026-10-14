@@ -117,7 +117,17 @@ class Evidence:
         key = (source["document_id"], source.get("chunk_index", 0),
                hashlib.sha256(text.encode()).hexdigest())
         if key in self.keys:
-            return self.keys[key]
+            number = self.keys[key]
+            existing = self.sources[number - 1]
+            # A one-chunk section can have exactly the same text as its anchor.
+            # Refine its provenance without changing the reference or content.
+            # Never claim completeness for a source truncated by our budget.
+            if source.get("section_complete") and existing["text"] == text:
+                for field in ("context_scope", "section_complete", "expanded_chunks",
+                              "page_start", "page_end", "source_regions", "section_path", "section_refs"):
+                    if field in source:
+                        existing[field] = deepcopy(source[field])
+            return number
         remaining = settings.retrieval_total_max_chars - self.characters
         if len(self.sources) >= 24 or remaining <= 0:
             return None
