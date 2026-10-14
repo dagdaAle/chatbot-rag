@@ -105,6 +105,20 @@ def test_read_full_section_and_keep_original_reference(agent):
     assert result['sources'][1]['section_complete'] is True
 
 
+def test_one_chunk_section_refines_completeness_without_new_reference(agent, monkeypatch):
+    monkeypatch.setattr(agentic, 'expand_hierarchical_contexts', lambda *args, **kwargs: [
+        {**source(), 'section_complete': True, 'context_scope': 'section', 'expanded_chunks': 1}])
+    agent.script.extend([response(calls=[call('read_section', {'source_id': 1})]),
+                         response('Sezione completa [Fonte 1].')])
+    result = run()
+    assert len(result['sources']) == 1
+    assert result['sources'][0]['section_complete'] is True
+    assert result['sources'][0]['context_scope'] == 'section'
+    assert result['sources'][0]['text'] == source()['text']
+    evidence = json.loads(agent.wire.payloads[1]['messages'][-1]['content'])
+    assert evidence['sources'][0]['source_id'] == 1 and evidence['sources'][0]['section_complete'] is True
+
+
 def test_unauthorized_retrieval_never_reaches_provider(agent, monkeypatch):
     monkeypatch.setattr(chat, 'retrieve_context', lambda *args, **kwargs: [source('other-tenant', 'TOP SECRET')])
     agent.script.append(response('Risposta inventata senza prove.'))
