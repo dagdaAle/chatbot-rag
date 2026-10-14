@@ -124,7 +124,7 @@ def revoke_sessions(user_id: UUID):
 
 @router.get('/knowledge')
 def knowledge():
-    return {'knowledge':rest('GET','knowledge_bases',params={'select':'*,documents(count,size_bytes)','order':'created_at.asc'}),
+    return {'knowledge':rest('GET','knowledge_bases',params={'select':'*,documents(count)','order':'created_at.asc'}),
             'members':rest('GET','knowledge_members')}
 
 @router.put('/knowledge/{knowledge_id}/access')
