@@ -11,7 +11,7 @@ export interface Profile {
   concurrent_requests: number; created_at: string;
 }
 export interface Member { user_id: string; can_manage?: boolean; knowledge_id?: string; model_key?: string }
-export interface AdminKnowledge { id: string; name: string; shared: boolean; created_by: string | null; documents: { count: number; size_bytes?: number }[] }
+export interface AdminKnowledge { id: string; name: string; shared: boolean; created_by: string | null; documents: { count: number }[] }
 export interface AdminModel { key: string; provider: 'openai' | 'deepseek' | 'ollama'; model_id: string; kind: 'chat' | 'embedding'; name: string; enabled: boolean; shared: boolean; input_per_million: number | null; output_per_million: number | null; currency: string }
 export interface UsageGroup { user_id: string; provider: string; model_id: string; operation: string; calls: number; errors: number; input_tokens: number; output_tokens: number; unknown_tokens: number; duration_ms: number }
 export interface UsageEvent { id: string; user_id: string; created_at: string; provider: string; model_id: string; operation: string; status: string; duration_ms: number; estimated_cost: number | null; currency: string | null }
