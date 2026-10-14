@@ -193,6 +193,7 @@ def retrieve_context(
     use_mmr: bool = True,
     lexical_query: str | None = None,
     document_ids: set[str] | None = None,
+    expand_sections: bool = True,
 ) -> list[dict]:
     """Cerca chunk con fusione semantica/lessicale e diversificazione MMR.
 
@@ -330,6 +331,8 @@ def retrieve_context(
             "score": hit.score,
             "retrieval_method": retrieval_method,
         })
+    if not expand_sections:
+        return contexts
     return expand_hierarchical_contexts(
         client,
         collection_name,
@@ -442,6 +445,13 @@ def chat(
         contexts = structured["sources"]
         answer = structured["answer"]
     else:
+        active_provider = provider or runtime_config.chat_provider
+        if settings.agentic_rag_enabled and active_provider == "deepseek" and knowledge_id:
+            from app.core.agentic import research
+            result = research(question, history, knowledge_id, top_k=top_k,
+                              score_threshold=score_threshold,
+                              model=model or runtime_config.chat_model)
+            return result
         contexts = retrieve_context(
             retrieval_query,
             top_k=top_k,

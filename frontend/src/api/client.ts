@@ -202,6 +202,11 @@ export interface ChatResponse {
   conversation_id?: string | null;
   structured_intent?: 'lookup' | 'count' | 'compare' | 'stats' | null;
   structured_rows_matched?: number | null;
+  research?: {
+    model_calls: number;
+    tool_calls: number;
+    stop_reason: 'completed' | 'step_limit' | 'budget_limit' | 'no_evidence' | 'invalid_citations';
+  } | null;
 }
 
 export interface ChatMessageItem {

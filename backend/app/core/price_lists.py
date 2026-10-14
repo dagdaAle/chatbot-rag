@@ -82,6 +82,17 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+def list_price_versions(knowledge_id: str, document_ids: set[str]) -> list[dict]:
+    """Metadata only, constrained to the caller's published document scope."""
+    with _lock, _connect() as connection:
+        rows = connection.execute(
+            "select document_id,series_key,version_label,effective_date from price_list_versions "
+            "where knowledge_id=? order by series_key,coalesce(effective_date,''),version_label",
+            (knowledge_id,),
+        ).fetchall()
+    return [dict(row) for row in rows if row["document_id"] in document_ids]
+
+
 def _plain(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.casefold())
     return "".join(char for char in normalized if not unicodedata.combining(char))

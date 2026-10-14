@@ -7,6 +7,10 @@ I nomi dei file delle fonti sono sostituiti con `Fonte N`; titoli e testo vengon
 protetti insieme. Le fonti originali e le coordinate PDF rimangono nella risposta
 API per l'utente autorizzato. Non occorre reindicizzare né migrare Supabase.
 
+La chat agentica DeepSeek estende la stessa mappa tramite `/v1/protect/extend`.
+Protegge anche ragionamento e argomenti degli strumenti: vedere
+[architettura, limiti e deploy coordinato](AGENTIC_RAG.md).
+
 Ogni richiesta crea un UUID indipendente. La mappa temporanea è condivisa tra
 tutti i suoi messaggi, rimane cifrata nell'Anonymizer e viene cancellata nel
 `finally`. Le mappe orfane scadono dopo 15 minuti. La risposta del modello viene
