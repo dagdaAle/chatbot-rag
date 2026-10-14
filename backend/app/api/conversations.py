@@ -90,7 +90,7 @@ def list_all_conversations() -> ConversationListResponse:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Errore interno del server") from e
 
 
 @router.post("", response_model=ConversationResponse, status_code=201)
@@ -110,7 +110,7 @@ def create_new_conversation(body: ConversationCreate) -> ConversationResponse:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Errore interno del server") from e
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
@@ -181,5 +181,5 @@ def add_message_to_conversation(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Errore interno del server") from e
 

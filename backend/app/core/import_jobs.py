@@ -164,7 +164,7 @@ def process_job(job: dict, worker: str) -> None:
     heartbeat = LeaseHeartbeat(job_id, worker, state).start()
     client = None
     collection_name = get_collection_name(kb_id)
-    user_marker = request_user.set(User(job["created_by"], "worker", False)) if job.get("created_by") else None
+    user_marker = request_user.set(User(job["created_by"], "worker")) if job.get("created_by") else None
     usage_marker = operation_context.set({"knowledge_id": kb_id})
     try:
         client = get_client()

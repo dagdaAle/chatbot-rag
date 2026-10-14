@@ -160,7 +160,7 @@ def test_upload_persists_pending_pdf_and_cleans_up_on_queue_failure(monkeypatch,
         return [{**kwargs["body"], "status": "queued"}]
     monkeypatch.setattr(api, "rest", rest)
     upload = UploadFile(filename="test.pdf", file=io.BytesIO(b"PDF"))
-    marker = request_user.set(User(str(uuid4()), "token", True))
+    marker = request_user.set(User(str(uuid4()), "token", "admin"))
     try:
         result = asyncio.run(api.upload_documents(kb, [upload]))
     finally:

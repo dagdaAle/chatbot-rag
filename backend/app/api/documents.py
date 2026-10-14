@@ -1,7 +1,8 @@
 """PDF upload queue, status, download and deletion for knowledge bases."""
+import logging
 import uuid
 from fastapi import Depends
-from app.auth import require_kb_manager
+from app.auth import require_kb_editor
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -16,10 +17,11 @@ from app.core.knowledge import get_knowledge, get_collection_name
 from app.core.qdrant_client import get_client
 from app.core.supabase import rest, identifier
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge", tags=["documents"])
 
 
-@router.post("/{knowledge_id}/documents/upload", dependencies=[Depends(require_kb_manager)])
+@router.post("/{knowledge_id}/documents/upload", dependencies=[Depends(require_kb_editor)])
 async def upload_documents(
     knowledge_id: str,
     files: list[UploadFile] = File(...),
@@ -92,7 +94,7 @@ def list_documents(knowledge_id: str) -> dict:
     return {"documents": rows, "jobs": jobs, "total": len(rows)}
 
 
-@router.post("/{knowledge_id}/imports/{job_id}/retry", dependencies=[Depends(require_kb_manager)])
+@router.post("/{knowledge_id}/imports/{job_id}/retry", dependencies=[Depends(require_kb_editor)])
 def retry_import(knowledge_id: str, job_id: str) -> dict:
     kb_id, valid_job = identifier(knowledge_id), identifier(job_id)
     rows = rest("GET", "import_jobs", params={"id": f"eq.{valid_job}", "knowledge_id": f"eq.{kb_id}"})
@@ -126,7 +128,7 @@ def download_document_file(knowledge_id: str, document_id: str) -> FileResponse:
     )
 
 
-@router.delete("/{knowledge_id}/documents/{document_id}", dependencies=[Depends(require_kb_manager)])
+@router.delete("/{knowledge_id}/documents/{document_id}", dependencies=[Depends(require_kb_editor)])
 def delete_document(knowledge_id: str, document_id: str) -> dict:
     """Elimina un documento, i suoi chunk da Qdrant e il PDF dal disco."""
     kb = get_knowledge(knowledge_id)
@@ -154,8 +156,9 @@ def delete_document(knowledge_id: str, document_id: str) -> dict:
                 )
             ),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception('Qdrant delete failed for document %s', document_id)
+        raise HTTPException(status_code=502, detail="Indice vettoriale non raggiungibile") from exc
 
     # Elimina il PDF dal disco
     from app.core.price_lists import delete_price_document

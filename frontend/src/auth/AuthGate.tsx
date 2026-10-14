@@ -76,6 +76,5 @@ function ProfileGate({ session, children }: { session: Session; children: ReactN
     return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', load); };
   }, [retry]);
   if (!profile) return <main className="space-y-4 p-8"><p role="status">{error || 'Verifica account…'}</p>{error && <Button onClick={() => setRetry(v => v + 1)}>Riprova</Button>}<Button variant="outline" onClick={() => supabase.auth.signOut({ scope: 'local' })}>Esci</Button></main>;
-  const user = { ...session.user, app_metadata: { ...session.user.app_metadata, chatbot_role: profile.role } };
-  return <AuthContext.Provider value={user}>{profile.must_change_password ? <main className="mx-auto max-w-lg space-y-6 p-8"><h1 className="text-xl font-semibold">Imposta la tua password personale</h1><PasswordForm onChanged={() => setRetry(v => v + 1)} /><Button variant="outline" onClick={() => supabase.auth.signOut({scope:'local'})}>Esci</Button><Toaster /></main> : children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user: session.user, profile }}>{profile.must_change_password ? <main className="mx-auto max-w-lg space-y-6 p-8"><h1 className="text-xl font-semibold">Imposta la tua password personale</h1><PasswordForm onChanged={() => setRetry(v => v + 1)} /><Button variant="outline" onClick={() => supabase.auth.signOut({scope:'local'})}>Esci</Button><Toaster /></main> : children}</AuthContext.Provider>;
 }

@@ -1,7 +1,7 @@
 """Server-authored usage; unavailable token counts/costs remain null."""
 from contextvars import ContextVar
 from contextlib import contextmanager
-from time import perf_counter
+from time import monotonic, perf_counter
 import logging
 from app.auth import request_user
 from app.core.admin import privileged
@@ -10,13 +10,36 @@ operation_context = ContextVar('usage_context', default={})
 logger = logging.getLogger(__name__)
 
 
+_rates: dict = {}
+RATE_TTL = 60
+
+
+def _rate(provider, model):
+    """Model tariffs change rarely: cache them instead of one extra query per LLM call."""
+    key = (provider, model)
+    cached = _rates.get(key)
+    if cached and monotonic() - cached[0] < RATE_TTL:
+        return cached[1]
+    rows = privileged('GET', '/rest/v1/app_models', params={'provider': f'eq.{provider}', 'model_id': f'eq.{model}'})
+    _rates[key] = (monotonic(), rows[0] if rows else {})
+    return _rates[key][1]
+
+
+def _safe_record(*args, **kwargs):
+    # The provider call already happened (and is billed): an accounting failure must not
+    # discard the user's answer. It is logged loudly instead.
+    try:
+        record(*args, **kwargs)
+    except Exception:
+        logger.exception('Usage recording failed for %s/%s', args[0], args[1])
+
+
 def record(provider, model, operation, status, duration_ms, input_tokens=None, output_tokens=None, error_code=None):
     try:
         user = request_user.get()
     except LookupError:
         return  # Offline pure-function tests/jobs have no authenticated caller.
-    rate_rows = privileged('GET', '/rest/v1/app_models', params={'provider': f'eq.{provider}', 'model_id': f'eq.{model}'})
-    rate = rate_rows[0] if rate_rows else {}
+    rate = _rate(provider, model)
     input_rate, output_rate = rate.get('input_per_million'), rate.get('output_per_million')
     cost = None
     if input_tokens is not None and output_tokens is not None and input_rate is not None and output_rate is not None:
@@ -35,11 +58,7 @@ def measure(provider, model, operation):
     try:
         yield usage
     except Exception as exc:
-        try:
-            record(provider, model, operation, 'error', int((perf_counter()-started)*1000), error_code=type(exc).__name__)
-        except Exception:
-            logger.error('Usage recording failed for provider operation')
+        _safe_record(provider, model, operation, 'error', int((perf_counter()-started)*1000), error_code=type(exc).__name__)
         raise
     else:
-        # Accounting failures are visible, never silently discard successful billable work.
-        record(provider, model, operation, 'success', int((perf_counter()-started)*1000), **usage)
+        _safe_record(provider, model, operation, 'success', int((perf_counter()-started)*1000), **usage)

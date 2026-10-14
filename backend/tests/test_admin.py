@@ -14,7 +14,7 @@ from app.config import settings
 
 @pytest.fixture
 def client(monkeypatch):
-    user=User(str(uuid4()),'test-token',True,issued_at=int(datetime.now(timezone.utc).timestamp()))
+    user=User(str(uuid4()),'test-token','admin',issued_at=int(datetime.now(timezone.utc).timestamp()))
     state={'profile':{'id':user.id,'email':'test@example.test','active':True,'role':'admin','must_change_password':False,'session_valid_after':'1970-01-01T00:00:00+00:00'}, 'calls':[]}
     monkeypatch.setattr(auth,'verify_token',lambda token:user)
     def rest(method,resource,**kwargs):
@@ -28,7 +28,7 @@ def client(monkeypatch):
     with TestClient(app,headers={'Authorization':'Bearer test-token'}) as test_client:
         yield test_client,state
 
-@pytest.mark.parametrize('role',['user','manager'])
+@pytest.mark.parametrize('role',['member','viewer'])
 @pytest.mark.parametrize('path',['/api/admin/users','/api/admin/knowledge','/api/admin/models','/api/admin/usage','/api/admin/audit'])
 def test_live_role_overrules_admin_jwt(client,role,path):
     test_client,state=client;state['profile']['role']=role
@@ -73,7 +73,7 @@ def test_quota_denial_precedes_embedding_and_generation(client,monkeypatch):
     assert test_client.post('/api/chat',json={'question':'test','knowledge_id':str(uuid4()),'model_key':'ollama:allowed'}).status_code==429
 
 def test_usage_snapshots_tariff_and_preserves_unknowns(monkeypatch):
-    marker=request_user.set(User(str(uuid4()),'test',False));captured=[]
+    marker=request_user.set(User(str(uuid4()),'test','viewer'));captured=[]
     def privileged(method,path,**kwargs):
         if method=='GET': return [{'input_per_million':2,'output_per_million':4,'currency':'USD'}]
         captured.append(kwargs['body'])
@@ -140,3 +140,22 @@ def test_privacy_failure_returns_503_without_saving_turn(client, monkeypatch):
     response = test_client.post('/api/chat', json={'question': 'test', 'knowledge_id': str(uuid4()), 'model_key': 'ollama:allowed'})
     assert response.status_code == 503 and 'protezione' in response.json()['detail']
     assert events[-1][2]['body']['error_code'] == 'PrivacyError'
+
+
+def test_accounting_failure_does_not_discard_answer(monkeypatch):
+    marker=request_user.set(User(str(uuid4()),'test','member'))
+    def broken(*args,**kwargs): raise HTTPException(502,'down')
+    monkeypatch.setattr(usage,'privileged',broken); usage._rates.clear()
+    try:
+        with usage.measure('ollama','m','chat') as u:
+            u['input_tokens']=1; u['output_tokens']=1
+    finally:
+        request_user.reset(marker)
+
+
+@pytest.mark.parametrize('role,status',[('viewer',403),('member',201),('admin',201)])
+def test_only_admin_and_member_create_knowledge(client,monkeypatch,role,status):
+    test_client,state=client;state['profile']['role']=role
+    from app.api import knowledge as api
+    monkeypatch.setattr(api,'create_knowledge',lambda *a: api.Knowledge('k','n','', 'now','u','private','owner'))
+    assert test_client.post('/api/knowledge',json={'name':'Test'}).status_code==status

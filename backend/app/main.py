@@ -41,6 +41,7 @@ app.include_router(admin.account_router, dependencies=[Depends(current_user)])
 
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(knowledge.router, dependencies=[Depends(current_user)])
+app.include_router(knowledge.directory_router, dependencies=[Depends(current_user)])
 app.include_router(documents.router, dependencies=[Depends(current_user)])
 app.include_router(chat.router, dependencies=[Depends(current_user)])
 app.include_router(conversations.router, dependencies=[Depends(current_user)])

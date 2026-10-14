@@ -25,4 +25,4 @@ def health_qdrant() -> dict:
             "collections_count": len(collections.collections),
         }
     except Exception as e:
-        raise HTTPException(status_code=503, detail={"qdrant": "unavailable", "error": str(e)})
+        raise HTTPException(status_code=503, detail={"qdrant": "unavailable"})
