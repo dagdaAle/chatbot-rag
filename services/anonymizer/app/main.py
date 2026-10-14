@@ -223,6 +223,31 @@ def restore(body: RestoreIn) -> dict:
     return {"protocol_version": 1, "mapping_id": mapping_id, "text": text, "replaced": replaced}
 
 
+@app.post("/v1/protect/extend", dependencies=[Depends(check_token)])
+async def extend_protection(body: ProtectIn) -> dict:
+    """Protect another research step without recreating or prolonging its map."""
+    if not state.get("complete"):
+        raise HTTPException(503, "Riconoscitori completi non disponibili")
+    mapping_id = str(body.mapping_id)
+
+    def run():
+        engine = state["engine"]
+        vault = engine.vault
+        if not vault.exists(mapping_id) or not vault.is_temporary(mapping_id):
+            raise HTTPException(404, "Mappatura temporanea inesistente o scaduta")
+        if not set(_TOKEN_RE.findall("\n".join(body.texts))) <= vault.lookup(mapping_id).keys():
+            raise HTTPException(422, "Segnaposto non consentito")
+        try:
+            texts, tokens = engine.protect_batch(body.texts, mapping_id, GLINER_THRESHOLD)
+            return {"protocol_version": 1, "mapping_id": mapping_id, "texts": texts,
+                    "tokens": tokens, "recognizers_complete": True}
+        except Exception:
+            vault.delete(mapping_id)
+            raise
+
+    return await _limited(run)
+
+
 @app.post("/anonymize", response_model=AnonymizeOut, dependencies=[Depends(check_token)])
 async def anonymize(body: AnonymizeIn) -> AnonymizeOut:
     _validate_entities(body.entities)

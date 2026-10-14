@@ -10,6 +10,7 @@ Chatbot RAG avanzato con supporto per documenti PDF, chunking semantico e divers
 
 ## Caratteristiche
 
+- **RAG agentico DeepSeek Flash**: ricerche successive, lettura delle sezioni e strumenti per versioni/listini, con permessi e budget controllati dal backend — [architettura e deploy](docs/AGENTIC_RAG.md)
 - **Chunking intelligente**: 2000 caratteri con overlap 250, divisione semantica su paragrafi e frasi
 - **Ricerca ibrida**: embedding semantici + indice lessicale IDF, fusi con RRF; codici e numeri di atto ricevono un segnale esatto aggiuntivo
 - **Recupero gerarchico**: il chunk trovato viene ampliato all'articolo o alla sezione Docling completa, entro un budget configurabile

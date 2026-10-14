@@ -1,5 +1,7 @@
 """Mandatory egress boundary for external chat. Never logs original content."""
 from contextlib import contextmanager
+from copy import deepcopy
+import json
 import logging
 import re
 import uuid
@@ -33,6 +35,7 @@ class ProtectedRequest:
         self.mapping_id = mapping_id
         self.tokens: set[str] = set()
         self.messages: list[dict] = []
+        self.created = False
 
     def call(self, method: str, path: str, body: dict | None = None) -> dict:
         try:
@@ -53,9 +56,22 @@ class ProtectedRequest:
 
     def protect(self, messages: list[dict]) -> None:
         texts = [message["content"] for message in messages]
+        protected = self.protect_texts(texts)
+        self.messages = [dict(message, content=text) for message, text in zip(messages, protected)]
+        self.messages[0]["content"] += PRIVACY_INSTRUCTION
+
+    def validate_tokens(self, text: str) -> None:
+        mentioned = set(TOKEN_RE.findall(text))
+        if not mentioned <= self.tokens or TOKEN_FRAGMENT_RE.search(TOKEN_RE.sub("", text)):
+            raise PrivacyError("La risposta contiene riferimenti protetti non validi. Riprova.")
+
+    def protect_texts(self, texts: list[str]) -> list[str]:
         if not texts or len(texts) > 64 or sum(map(len, texts)) > settings.anonymizer_max_chars:
             raise PrivacyError("La richiesta supera il limite del servizio di protezione dei dati.")
-        result = self.call("POST", "/v1/protect", {"mapping_id": self.mapping_id, "texts": texts})
+        for text in texts:
+            self.validate_tokens(text)
+        path = "/v1/protect/extend" if self.created else "/v1/protect"
+        result = self.call("POST", path, {"mapping_id": self.mapping_id, "texts": texts})
         protected = result.get("texts")
         tokens = result.get("tokens")
         prefix = f"<PII_{uuid.UUID(self.mapping_id).hex}_"
@@ -68,20 +84,41 @@ class ProtectedRequest:
             or not all(isinstance(token, str) and TOKEN_RE.fullmatch(token) and token.startswith(prefix) for token in tokens)
         ):
             raise PrivacyError("Risultato del servizio di protezione non valido. Invio annullato.")
-        self.tokens = set(tokens)
+        emitted_tokens = set(tokens)
         emitted = set(TOKEN_RE.findall("\n".join(protected)))
-        if emitted != self.tokens:
+        if emitted != emitted_tokens:
             raise PrivacyError("Risultato del servizio di protezione non valido. Invio annullato.")
         if sum(map(len, protected)) > settings.anonymizer_max_chars:
             raise PrivacyError("Il testo protetto supera il limite della richiesta. Riduci il contesto.")
-        self.messages = [dict(message, content=text) for message, text in zip(messages, protected)]
-        self.messages[0]["content"] += PRIVACY_INSTRUCTION
+        self.tokens.update(emitted_tokens)
+        if len(self.tokens) > 10000:
+            raise PrivacyError("La ricerca supera il limite del servizio di protezione dei dati.")
+        self.created = True
+        return protected
+
+    def protect_messages(self, messages: list[dict]) -> list[dict]:
+        """Protect every free-text field in an agent transcript, preserving tool IDs."""
+        output = deepcopy(messages)
+        fields = []
+        for message in output:
+            for key in ("content", "reasoning_content"):
+                if isinstance(message.get(key), str) and message[key]:
+                    fields.append((message, key))
+            for call in message.get("tool_calls") or []:
+                try:
+                    call["function"]["arguments"] = json.dumps(
+                        json.loads(call["function"]["arguments"]), ensure_ascii=False)
+                except (ValueError, TypeError):
+                    pass  # Invalid arguments are still protected; tool validation rejects them.
+                fields.append((call["function"], "arguments"))
+        values = self.protect_texts([item[key] for item, key in fields])
+        for (item, key), value in zip(fields, values):
+            item[key] = value
+        return output
 
     def restore(self, text: str) -> str:
-        mentioned = set(TOKEN_RE.findall(text))
         # Reject invented/cross-request tokens before sending them to the vault.
-        if not mentioned <= self.tokens or TOKEN_FRAGMENT_RE.search(TOKEN_RE.sub("", text)):
-            raise PrivacyError("La risposta contiene riferimenti protetti non validi. Riprova.")
+        self.validate_tokens(text)
         result = self.call("POST", "/v1/restore", {
             "mapping_id": self.mapping_id, "text": text, "allowed_tokens": sorted(self.tokens),
         })
@@ -96,7 +133,7 @@ class ProtectedRequest:
 
 
 @contextmanager
-def protected_request(messages: list[dict]):
+def protected_session():
     if not settings.anonymizer_token:
         raise PrivacyError("Servizio di protezione dei dati non configurato.")
     # One HTTP session per request: no cookies, proxies, redirects or shared map.
@@ -105,7 +142,6 @@ def protected_request(messages: list[dict]):
         session.headers["X-Anonymizer-Token"] = settings.anonymizer_token
         request = ProtectedRequest(session, str(uuid.uuid4()))
         try:
-            request.protect(messages)
             yield request
         finally:
             try:
@@ -113,3 +149,10 @@ def protected_request(messages: list[dict]):
             except PrivacyError:
                 # The service TTL handles crashes/timeouts; never log identifiers/content.
                 log.warning("Privacy mapping cleanup deferred to service expiry")
+
+
+@contextmanager
+def protected_request(messages: list[dict]):
+    with protected_session() as request:
+        request.protect(messages)
+        yield request

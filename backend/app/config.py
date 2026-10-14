@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     retrieval_section_max_chars: int = Field(default=18000, ge=2000, le=100000)
     retrieval_total_max_chars: int = Field(default=48000, ge=4000, le=200000)
     retrieval_neighbor_chunks: int = Field(default=1, ge=0, le=5)
+    # Bounded, read-only research; only DeepSeek chat uses this path.
+    agentic_rag_enabled: bool = True
+    agentic_max_steps: int = Field(default=3, ge=1, le=5)
+    agentic_max_tool_calls: int = Field(default=6, ge=1, le=12)
+    agentic_timeout_seconds: float = Field(default=120, ge=10, le=300)
+    agentic_max_output_tokens: int = Field(default=12000, ge=1000, le=32000)
+    agentic_max_input_bytes: int = Field(default=250000, ge=10000, le=1000000)
+    agentic_reasoning_effort: Literal["none", "low"] = "none"
     # External chat always requires protection; no runtime/user bypass.
     anonymizer_url: str = "http://anonymizer:8000"
     anonymizer_token: str = ""

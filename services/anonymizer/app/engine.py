@@ -99,7 +99,10 @@ class Anonymizer:
     def protect_batch(self, texts: list[str], mapping_id: str, threshold: float) -> tuple[list[str], list[str]]:
         # Analyze all fields before replacement, so a name recognized only in a
         # later source is also replaced in an earlier question/history message.
-        analyses = [self.analyze(text, None, threshold) for text in texts]
+        # Preserve already emitted placeholders across agent research steps.
+        # Equal-length masking keeps detector offsets aligned with the source.
+        analyses = [self.analyze(_TOKEN_RE.sub(lambda m: " " * len(m.group()), text), None, threshold)
+                    for text in texts]
         for text, results in zip(texts, analyses):
             for result in results:
                 self.vault.token_for(mapping_id, result.entity_type, text[result.start:result.end])
@@ -114,13 +117,15 @@ class Anonymizer:
             pattern = r"\s+".join(re.escape(part) for part in value.split())
             patterns.append((r"(?<!\w)" if value[0].isalnum() else "") + pattern + (r"(?!\w)" if value[-1].isalnum() else ""))
         matcher = re.compile("|".join(patterns), re.IGNORECASE)
-        emitted = set()
+        emitted = set(_TOKEN_RE.findall("\n".join(texts)))
         protected = []
         for text, detected in zip(texts, analyses):
+            token_spans = [(match.start(), match.end()) for match in _TOKEN_RE.finditer(text)]
             # Known exact occurrences win over shorter overlapping detections.
             replacements = [
                 (match.start(), match.end(), values[normalize(match.group())])
                 for match in matcher.finditer(text)
+                if all(match.end() <= start or match.start() >= end for start, end in token_spans)
             ]
             for result in detected:
                 if all(result.end <= start or result.start >= end for start, end, _ in replacements):

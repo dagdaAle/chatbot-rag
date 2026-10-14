@@ -100,6 +100,67 @@ def test_missing_token_and_incomplete_recognizers(api):
     assert api.post('/v1/protect', json=body).status_code == 503
 
 
+def test_agent_extension_preserves_old_tokens_and_restores_both_steps(api):
+    mid = str(uuid4())
+    first = api.post('/v1/protect', json={'mapping_id': mid, 'texts': ['a@example.it']}).json()
+    old, = first['tokens']
+    result = api.post('/v1/protect/extend', json={'mapping_id': mid, 'texts': [
+        f'Prima fonte: {old}', 'Seconda fonte: b@example.it; contatto a@example.it']})
+    assert result.status_code == 200
+    output = result.json()
+    assert len(output['tokens']) == 2 and old in output['tokens']
+    assert output['texts'][0] == f'Prima fonte: {old}'
+    assert 'b@example.it' not in output['texts'][1] and old in output['texts'][1]
+    restored = api.post('/v1/restore', json={'mapping_id': mid, 'text': ' '.join(output['texts']),
+                                          'allowed_tokens': output['tokens']})
+    assert restored.status_code == 200 and 'a@example.it' in restored.json()['text']
+    assert 'b@example.it' in restored.json()['text']
+
+
+def test_extension_reuses_known_names_across_steps(engine, monkeypatch):
+    def analyze(text, *args):
+        if text.startswith('Documento') and 'Mario Rossi' in text:
+            start = text.index('Mario Rossi')
+            return [RecognizerResult('PERSONA', start, start + 11, .9)]
+        return []
+    monkeypatch.setattr(engine, 'analyze', analyze)
+    mid = str(uuid4())
+    engine.vault.create_temporary(mid, 900)
+    first, tokens = engine.protect_batch(['Documento Mario Rossi'], mid, .5)
+    second, emitted = engine.protect_batch([first[0], 'Domanda su Mario Rossi'], mid, .5)
+    assert second[0] == first[0] and tokens == emitted
+    assert 'Mario Rossi' not in second[1]
+
+
+def test_extension_rejects_foreign_expired_persistent_and_missing_maps(api, engine):
+    mid = str(uuid4())
+    body = {'mapping_id': mid, 'texts': ['a@example.it']}
+    assert api.post('/v1/protect/extend', json=body).status_code == 404
+    engine.vault.ensure_mapping(mid)
+    assert api.post('/v1/protect/extend', json=body).status_code == 404
+    engine.vault.delete(mid)
+    engine.vault.create_temporary(mid, -1)
+    assert api.post('/v1/protect/extend', json=body).status_code == 404
+    engine.vault.delete(mid)
+    api.post('/v1/protect', json=body)
+    foreign = f'<PII_{uuid4().hex}_EMAIL_1>'
+    assert api.post('/v1/protect/extend', json={**body, 'texts': [foreign]}).status_code == 422
+    assert api.post('/v1/protect/extend', json=body, headers={'X-Anonymizer-Token': ''}).status_code == 401
+    main.state['complete'] = False
+    assert api.post('/v1/protect/extend', json=body).status_code == 503
+
+
+def test_extension_failure_deletes_map(api, engine, monkeypatch):
+    mid = str(uuid4())
+    api.post('/v1/protect', json={'mapping_id': mid, 'texts': ['a@example.it']})
+    def fail(*args):
+        raise RuntimeError('PRIVATE')
+    monkeypatch.setattr(engine, 'protect_batch', fail)
+    result = api.post('/v1/protect/extend', json={'mapping_id': mid, 'texts': ['b@example.it']})
+    assert result.status_code == 503 and 'PRIVATE' not in result.text
+    assert not engine.vault.exists(mid)
+
+
 def test_limits_and_queue_admission(api):
     assert api.post('/v1/protect', json={'mapping_id': str(uuid4()), 'texts': ['a' * 100001] * 2}).status_code == 422
     assert api.post('/v1/protect', json={'mapping_id': str(uuid4()), 'texts': ['a'] * 65}).status_code == 422

@@ -72,7 +72,7 @@ def test_follow_up_uses_history_and_sources_keep_kb(monkeypatch):
         return [dict(filename='a.pdf', text='scadenza', document_id='d', chunk_index=0, score=.8)]
     monkeypatch.setattr(chat, 'retrieve_context', retrieve)
     monkeypatch.setattr(chat, 'generate_response', lambda *args, **kwargs: 'risposta')
-    result = chat.chat('E le scadenze?', knowledge_id='kb', conversation_history=[{'role':'user','content':'Bando Verona'}])
+    result = chat.chat('E le scadenze?', knowledge_id='kb', provider='ollama', conversation_history=[{'role':'user','content':'Bando Verona'}])
     assert 'Bando Verona' in captured['query']
     assert result['sources'][0]['knowledge_id'] == 'kb'
 

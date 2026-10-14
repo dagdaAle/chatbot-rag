@@ -56,6 +56,12 @@ class SourceItem(BaseModel):
     raw_cells: dict[str, str] | None = None
 
 
+class ResearchInfo(BaseModel):
+    model_calls: int
+    tool_calls: int
+    stop_reason: str
+
+
 class ChatResponse(BaseModel):
     """Risposta chat."""
     answer: str
@@ -65,6 +71,7 @@ class ChatResponse(BaseModel):
     model_key: str | None = None
     structured_intent: str | None = None
     structured_rows_matched: int | None = None
+    research: ResearchInfo | None = None
 
 
 @router.post("", response_model=ChatResponse)

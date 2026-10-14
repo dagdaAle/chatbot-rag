@@ -12,6 +12,12 @@ Risposta: `protocol_version=1`, stessa mappa, `recognizers_complete=true`, testi
 protetti nello stesso ordine, elenco dei `tokens` emessi. Tutti i riconoscitori
 sono obbligatori per questo endpoint; GLiNER disabilitato => HTTP 503.
 
+`POST /v1/protect/extend` accetta lo stesso schema e protegge nuovi batch nella
+mappa temporanea già creata. Conserva i segnaposto, riconosce nuove entità e
+propaga i valori già noti. Richiede autenticazione e riconoscitori completi;
+mappe mancanti, scadute o persistenti restituiscono 404, token estranei 422.
+L'estensione non prolunga il TTL. Un errore di elaborazione elimina la mappa.
+
 Una mappa è creata una sola volta per richiesta. Gli pseudonimi hanno forma
 `<PII_UUIDsenzaTrattini_PERSONA_1>`. Prima si analizzano tutti i campi, poi si
 sostituiscono anche le altre occorrenze esatte dei valori trovati. Non si inferisce

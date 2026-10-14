@@ -24,10 +24,10 @@ def wire(monkeypatch):
         assert self.trust_env is False
         calls.append((method, url, json))
         mid = json.get('mapping_id') if json else url.rsplit('/', 1)[-1]
-        if url.endswith('/v1/protect'):
+        if url.endswith('/v1/protect') or url.endswith('/v1/protect/extend'):
             if faults.get('timeout'):
                 raise requests.Timeout('do not expose source text')
-            table = {}
+            table = dict(vaults.get(mid, {}))
             texts = list(json['texts'])
             for i, value in enumerate(names):
                 token = f'<PII_{uuid.UUID(mid).hex}_PERSONA_{i + 1}>'
@@ -36,7 +36,7 @@ def wire(monkeypatch):
                     texts = [text.replace(value, token) for text in texts]
             vaults[mid] = table
             result = dict(protocol_version=1, mapping_id=mid, recognizers_complete=True,
-                          texts=texts, tokens=list(table))
+                          texts=texts, tokens=sorted(set(privacy.TOKEN_RE.findall('\n'.join(texts)))))
             result.update(faults.get('result', {}))
         elif url.endswith('/v1/restore'):
             text = json['text']
