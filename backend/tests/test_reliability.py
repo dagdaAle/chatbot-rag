@@ -46,7 +46,7 @@ def test_no_destructive_dimension_change():
 def test_embedding_change_refused_even_same_dimensions():
     from app.auth import current_user, User
     async def admin():
-        yield User('00000000-0000-0000-0000-000000000001', 'test', True)
+        yield User('00000000-0000-0000-0000-000000000001', 'test', 'admin')
     app.dependency_overrides[current_user] = admin
     with TestClient(app) as client:
         response = client.put('/api/settings/models/embedding', json={'provider':'ollama','model_id':'other-model'})

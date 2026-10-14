@@ -1,4 +1,4 @@
-import { useAuthUser } from '@/auth/AuthContext';
+import { useProfile } from '@/auth/AuthContext';
 import { Shield, UserRound } from 'lucide-react';
 import { supabase } from '@/auth/supabase';
 import { useState } from 'react';
@@ -65,7 +65,7 @@ const THEMES = [
 ];
 
 export function AppSidebar() {
-  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
+  const { isAdmin } = useProfile();
   const { conversations, conversationsLoading, reloadConversations } = useApp();
   const { id: currentId } = useParams();
   const location = useLocation();

@@ -20,7 +20,7 @@ def signing(monkeypatch):
     def application_rest(method, resource, **kwargs):
         if resource == 'app_profiles':
             user = request_user.get()
-            return [{'id':user.id,'role':'admin' if user.is_admin else 'user','active':True,'must_change_password':False,'session_valid_after':'1970-01-01T00:00:00+00:00'}]
+            return [{'id':user.id,'role':'viewer','active':True,'must_change_password':False,'session_valid_after':'1970-01-01T00:00:00+00:00'}]
         if resource == 'rpc/chatbot_kb_access':
             return request_user.get().is_admin
         if resource == 'app_models':
@@ -61,9 +61,10 @@ def test_rejects_hs256_and_tampering(signing):
         assert exc.value.status_code == 401
 
 
-def test_admin_uses_app_metadata_only(signing):
+def test_jwt_claims_never_grant_admin(signing):
+    # The role comes only from app_profiles, never from token metadata.
     assert not auth.verify_token(signing(user_metadata={'chatbot_role':'admin'})).is_admin
-    assert auth.verify_token(signing(app_metadata={'chatbot_role':'admin'})).is_admin
+    assert not auth.verify_token(signing(app_metadata={'chatbot_role':'admin'})).is_admin
 
 
 @pytest.mark.parametrize('path', ['/api/knowledge','/api/conversations','/api/settings/prompt','/api/settings/models/config','/health/qdrant'])

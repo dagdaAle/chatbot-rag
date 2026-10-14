@@ -1,4 +1,4 @@
-import { useAuthUser } from '@/auth/AuthContext';
+import { useProfile } from '@/auth/AuthContext';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, RotateCcw, Save, ShieldCheck } from 'lucide-react';
@@ -57,7 +57,7 @@ export function SettingsPage() {
 }
 
 function ModelsSettings() {
-  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
+  const { isAdmin } = useProfile();
   const [config, setConfig] = useState<ProviderConfigResponse | null>(null);
   const [embeddings, setEmbeddings] = useState<ModelInfo[]>([]);
   const [currentEmbedding, setCurrentEmbedding] = useState('');
@@ -138,7 +138,7 @@ function ModelsSettings() {
 }
 
 function PromptSettings() {
-  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
+  const { isAdmin } = useProfile();
   const [prompt, setPrompt] = useState('');
   const [original, setOriginal] = useState('');
   const [isDefault, setIsDefault] = useState(true);

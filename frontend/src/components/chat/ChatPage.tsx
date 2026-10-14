@@ -1,4 +1,4 @@
-import { useAuthUser } from '@/auth/AuthContext';
+import { useProfile } from '@/auth/AuthContext';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -43,7 +43,7 @@ const SUGGESTIONS = [
 ];
 
 export function ChatPage() {
-  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
+  const { isAdmin } = useProfile();
   const { id: routeId } = useParams();
   const navigate = useNavigate();
   const { knowledges, selectedKnowledgeId, setSelectedKnowledgeId, reloadConversations } = useApp();

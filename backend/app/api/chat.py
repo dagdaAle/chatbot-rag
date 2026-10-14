@@ -1,4 +1,5 @@
 """Endpoint chat RAG."""
+import logging
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException
 
@@ -9,6 +10,7 @@ from app.core.conversations import (
     save_turn,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
@@ -93,13 +95,23 @@ def chat(request: ChatRequest) -> ChatResponse:
         if not conversation_id:
             conversation_id = create_conversation(request.question.strip()[:40], request.knowledge_id)['id']
         save_turn(conversation_id, request.question.strip(), result['answer'], result['sources'])
-        privileged('PATCH','/rest/v1/usage_events',params={'parent_id':f'eq.{reservation}'},body={'conversation_id':conversation_id})
-        privileged('PATCH','/rest/v1/usage_events',params={'id':f'eq.{reservation}'},body={
-            'status':'success' if result['contexts_used'] else 'no_context','provider':chosen['provider'],'model_id':chosen['model_id'],
-            'conversation_id':conversation_id,'duration_ms':int((perf_counter()-started)*1000)})
-        return ChatResponse(**result,conversation_id=conversation_id,model_key=key)
     except Exception as exc:
-        privileged('PATCH','/rest/v1/usage_events',params={'id':f'eq.{reservation}'},body={'status':'error','error_code':type(exc).__name__,'duration_ms':int((perf_counter()-started)*1000)})
+        _close_reservation(reservation, {'status':'error','error_code':type(exc).__name__,'duration_ms':int((perf_counter()-started)*1000)})
         raise
     finally:
         operation_context.reset(marker)
+    _close_reservation(reservation, {
+        'status':'success' if result['contexts_used'] else 'no_context','provider':chosen['provider'],'model_id':chosen['model_id'],
+        'conversation_id':conversation_id,'duration_ms':int((perf_counter()-started)*1000)}, conversation_id)
+    return ChatResponse(**result,conversation_id=conversation_id,model_key=key)
+
+
+def _close_reservation(reservation, body, conversation_id=None):
+    """Accounting must never hide the outcome of the request (answer already produced)."""
+    from app.core.admin import privileged
+    try:
+        if conversation_id:
+            privileged('PATCH','/rest/v1/usage_events',params={'parent_id':f'eq.{reservation}'},body={'conversation_id':conversation_id})
+        privileged('PATCH','/rest/v1/usage_events',params={'id':f'eq.{reservation}'},body=body)
+    except Exception:
+        logger.exception('Could not close usage reservation %s', reservation)

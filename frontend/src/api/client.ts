@@ -2,10 +2,21 @@ import { authFetch } from '@/auth/supabase';
 /** Client API backend - URL da variabile ambiente in build-time */
 const API_URL = import.meta.env.VITE_API_URL || '';
 
-export async function fetchHealth(): Promise<{ status: string }> {
-  const res = await authFetch(`${API_URL}/health`);
-  if (!res.ok) throw new Error('Health check failed');
+/** Una sola gestione errori per tutte le chiamate: il messaggio arriva dal backend. */
+async function request<T>(path: string, init: RequestInit & { json?: unknown } = {}, fallback = 'Operazione non riuscita'): Promise<T> {
+  const { json, ...rest } = init;
+  const res = await authFetch(`${API_URL}${path}`, json === undefined ? rest : {
+    ...rest, headers: { 'Content-Type': 'application/json', ...rest.headers }, body: JSON.stringify(json),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(typeof err.detail === 'string' ? err.detail : fallback);
+  }
   return res.json();
+}
+
+export async function fetchHealth(): Promise<{ status: string }> {
+  return request(`/health`, {}, 'Health check failed');
 }
 
 export async function fetchHealthQdrant(): Promise<{
@@ -13,12 +24,13 @@ export async function fetchHealthQdrant(): Promise<{
   qdrant: string;
   collections_count: number;
 }> {
-  const res = await authFetch(`${API_URL}/health/qdrant`);
-  if (!res.ok) throw new Error('Qdrant health check failed');
-  return res.json();
+  return request(`/health/qdrant`, {}, 'Qdrant health check failed');
 }
 
 // ============ Knowledge API ============
+
+export type KnowledgeVisibility = 'private' | 'organization';
+export type KnowledgePermission = 'owner' | 'editor' | 'viewer';
 
 export interface KnowledgeItem {
   id: string;
@@ -26,7 +38,12 @@ export interface KnowledgeItem {
   description: string;
   created_at: string;
   documents_count: number;
-  can_manage?: boolean;
+  owner_user_id: string;
+  visibility: KnowledgeVisibility;
+  /** Calcolati dal database: il frontend non ricalcola i permessi. */
+  permission: KnowledgePermission | null;
+  can_edit: boolean;
+  can_own: boolean;
 }
 
 export interface KnowledgeListResponse {
@@ -34,29 +51,50 @@ export interface KnowledgeListResponse {
   total: number;
 }
 
-export async function fetchKnowledges(): Promise<KnowledgeListResponse> {
-  const res = await authFetch(`${API_URL}/api/knowledge`);
-  if (!res.ok) throw new Error('Errore caricamento knowledge');
-  return res.json();
+export interface KnowledgeMember {
+  user_id: string;
+  role: 'editor' | 'viewer';
 }
 
-export async function createKnowledge(name: string, description: string = ''): Promise<KnowledgeItem> {
-  const res = await authFetch(`${API_URL}/api/knowledge`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, description }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+export interface KnowledgeAccess {
+  visibility: KnowledgeVisibility;
+  owner_user_id: string;
+  members: KnowledgeMember[];
+}
+
+export interface DirectoryUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: 'admin' | 'member' | 'viewer';
+}
+
+export async function fetchKnowledges(): Promise<KnowledgeListResponse> {
+  return request(`/api/knowledge`, {}, 'Errore caricamento knowledge');
+}
+
+export async function createKnowledge(name: string, description = '', visibility: KnowledgeVisibility = 'private'): Promise<KnowledgeItem> {
+  return request(`/api/knowledge`, { method: 'POST', json: { name, description, visibility } });
+}
+
+export async function updateKnowledge(knowledgeId: string, name: string, description: string): Promise<KnowledgeItem> {
+  return request(`/api/knowledge/${knowledgeId}`, { method: 'PUT', json: { name, description } });
 }
 
 export async function deleteKnowledge(knowledgeId: string): Promise<{ id: string; status: string }> {
-  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Errore eliminazione knowledge');
-  return res.json();
+  return request(`/api/knowledge/${knowledgeId}`, { method: 'DELETE' }, 'Errore eliminazione knowledge');
+}
+
+export async function fetchKnowledgeAccess(knowledgeId: string): Promise<KnowledgeAccess> {
+  return request(`/api/knowledge/${knowledgeId}/access`);
+}
+
+export async function saveKnowledgeAccess(knowledgeId: string, access: { visibility: KnowledgeVisibility; members: KnowledgeMember[]; owner_user_id?: string }): Promise<{ success: boolean }> {
+  return request(`/api/knowledge/${knowledgeId}/access`, { method: 'PUT', json: access });
+}
+
+export async function fetchDirectory(): Promise<DirectoryUser[]> {
+  return request(`/api/directory`);
 }
 
 // ============ Documents API (per Knowledge) ============
@@ -84,9 +122,7 @@ export interface UploadResult {
 }
 
 export async function fetchDocuments(knowledgeId: string): Promise<{ documents: DocumentItem[]; total: number }> {
-  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/documents`);
-  if (!res.ok) throw new Error('Errore caricamento documenti');
-  return res.json();
+  return request(`/api/knowledge/${knowledgeId}/documents`, {}, 'Errore caricamento documenti');
 }
 
 export async function uploadDocuments(knowledgeId: string, files: File[]): Promise<UploadResult> {
@@ -94,21 +130,11 @@ export async function uploadDocuments(knowledgeId: string, files: File[]): Promi
   for (const file of files) {
     formData.append('files', file);
   }
-  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/documents/upload`, {
-    method: 'POST',
-    body: formData,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+  return request(`/api/knowledge/${knowledgeId}/documents/upload`, { method: 'POST', body: formData });
 }
 
 export async function deleteDocument(knowledgeId: string, documentId: string): Promise<{ document_id: string; status: string }> {
-  const res = await authFetch(`${API_URL}/api/knowledge/${knowledgeId}/documents/${documentId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Errore eliminazione documento');
-  return res.json();
+  return request(`/api/knowledge/${knowledgeId}/documents/${documentId}`, { method: 'DELETE' }, 'Errore eliminazione documento');
 }
 
 // ============ Chat API ============
@@ -177,23 +203,14 @@ export async function sendChatMessage(
   conversationId?: string,
   modelKey?: string,
 ): Promise<ChatResponse> {
-  const res = await authFetch(`${API_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  return request(`/api/chat`, { method: 'POST', json: {
       question,
       top_k: topK,
       conversation_history: conversationHistory,
       knowledge_id: knowledgeId || null,
       conversation_id: conversationId || null,
       model_key: modelKey || null,
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+    } });
 }
 
 // ============ Conversations API ============
@@ -229,43 +246,22 @@ export interface ConversationDetail {
 }
 
 export async function fetchConversations(): Promise<ConversationListResponse> {
-  const res = await authFetch(`${API_URL}/api/conversations`);
-  if (!res.ok) throw new Error('Errore caricamento conversazioni');
-  return res.json();
+  return request(`/api/conversations`, {}, 'Errore caricamento conversazioni');
 }
 
 export async function createConversation(title: string, knowledgeId?: string): Promise<ConversationItem> {
-  const res = await authFetch(`${API_URL}/api/conversations`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  return request(`/api/conversations`, { method: 'POST', json: {
       title,
       knowledge_id: knowledgeId || null,
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+    } });
 }
 
 export async function fetchConversation(id: string): Promise<ConversationDetail> {
-  const res = await authFetch(`${API_URL}/api/conversations/${id}`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+  return request(`/api/conversations/${id}`, {});
 }
 
 export async function deleteConversation(id: string): Promise<{ id: string; status: string }> {
-  const res = await authFetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE' });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+  return request(`/api/conversations/${id}`, { method: 'DELETE' });
 }
 
 export async function addMessageToConversation(
@@ -274,20 +270,11 @@ export async function addMessageToConversation(
   content: string,
   sources?: ChatSource[],
 ): Promise<ConversationMessage> {
-  const res = await authFetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  return request(`/api/conversations/${conversationId}/messages`, { method: 'POST', json: {
       role,
       content,
       sources: sources || null,
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+    } });
 }
 
 // ============ Settings API (Prompt) ============
@@ -303,36 +290,19 @@ export interface PromptUpdateResponse {
 }
 
 export async function fetchSystemPrompt(): Promise<PromptResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/prompt`);
-  if (!res.ok) throw new Error('Errore caricamento prompt');
-  return res.json();
+  return request(`/api/settings/prompt`, {}, 'Errore caricamento prompt');
 }
 
 export async function updateSystemPrompt(prompt: string): Promise<PromptUpdateResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/prompt`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+  return request(`/api/settings/prompt`, { method: 'PUT', json: { prompt } });
 }
 
 export async function resetSystemPrompt(): Promise<PromptUpdateResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/prompt/reset`, {
-    method: 'POST',
-  });
-  if (!res.ok) throw new Error('Errore ripristino prompt');
-  return res.json();
+  return request(`/api/settings/prompt/reset`, { method: 'POST' }, 'Errore ripristino prompt');
 }
 
 export async function fetchDefaultPrompt(): Promise<PromptResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/prompt/default`);
-  if (!res.ok) throw new Error('Errore caricamento prompt di default');
-  return res.json();
+  return request(`/api/settings/prompt/default`, {}, 'Errore caricamento prompt di default');
 }
 
 // ============ Models API ============
@@ -372,45 +342,21 @@ export interface ProviderConfigResponse {
 }
 
 export async function fetchProviderConfig(): Promise<ProviderConfigResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/models/config`);
-  if (!res.ok) throw new Error('Errore caricamento configurazione provider');
-  return res.json();
+  return request(`/api/settings/models/config`, {}, 'Errore caricamento configurazione provider');
 }
 
 export async function fetchChatModels(): Promise<ModelsListResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/models/chat`);
-  if (!res.ok) throw new Error('Errore caricamento modelli chat');
-  return res.json();
+  return request(`/api/settings/models/chat`, {}, 'Errore caricamento modelli chat');
 }
 
 export async function fetchEmbeddingModels(): Promise<ModelsListResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/models/embedding`);
-  if (!res.ok) throw new Error('Errore caricamento modelli embedding');
-  return res.json();
+  return request(`/api/settings/models/embedding`, {}, 'Errore caricamento modelli embedding');
 }
 
 export async function setChatModel(modelId: string, provider: string): Promise<ModelSetResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/models/chat`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model_id: modelId, provider }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+  return request(`/api/settings/models/chat`, { method: 'PUT', json: { model_id: modelId, provider } });
 }
 
 export async function setEmbeddingModel(modelId: string, provider: string): Promise<ModelSetResponse> {
-  const res = await authFetch(`${API_URL}/api/settings/models/embedding`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model_id: modelId, provider }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-  }
-  return res.json();
+  return request(`/api/settings/models/embedding`, { method: 'PUT', json: { model_id: modelId, provider } });
 }

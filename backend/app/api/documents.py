@@ -1,6 +1,7 @@
 """Endpoint upload, list, download e delete documenti per Knowledge Base."""
+import logging
 from fastapi import Depends
-from app.auth import require_kb_manager
+from app.auth import require_kb_editor
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
@@ -12,14 +13,15 @@ from app.core.documents import (
     delete_pdf_from_disk,
     get_upload_path,
 )
-from app.core.knowledge import get_knowledge, get_collection_name, update_documents_count
+from app.core.knowledge import get_knowledge, get_collection_name
 from app.core.qdrant_client import get_client, ensure_collection_for_kb
 from app.core.supabase import rest, identifier
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge", tags=["documents"])
 
 
-@router.post("/{knowledge_id}/documents/upload", dependencies=[Depends(require_kb_manager)])
+@router.post("/{knowledge_id}/documents/upload", dependencies=[Depends(require_kb_editor)])
 async def upload_documents(
     knowledge_id: str,
     files: list[UploadFile] = File(...),
@@ -37,7 +39,7 @@ async def upload_documents(
     try:
         ensure_collection_for_kb(client, collection_name)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     results = []
     errors = []
@@ -63,8 +65,9 @@ async def upload_documents(
                 doc_id, points = await run_in_threadpool(process_pdf_to_points, content, filename)
             finally:
                 operation_context.reset(marker)
-        except Exception as e:
-            errors.append({"filename": filename, "error": f"Errore elaborazione: {e}"})
+        except Exception:
+            logger.exception('PDF processing failed for %s', filename)
+            errors.append({"filename": filename, "error": "Errore durante l'elaborazione del PDF"})
             continue
 
         if not points:
@@ -94,10 +97,6 @@ async def upload_documents(
             "chunks_count": len(points),
             "status": "uploaded",
         })
-
-    # Aggiorna conteggio documenti nella knowledge
-    if results:
-        update_documents_count(knowledge_id, delta=len(results))
 
     return {
         "uploaded": results,
@@ -138,7 +137,7 @@ def download_document_file(knowledge_id: str, document_id: str) -> FileResponse:
     )
 
 
-@router.delete("/{knowledge_id}/documents/{document_id}", dependencies=[Depends(require_kb_manager)])
+@router.delete("/{knowledge_id}/documents/{document_id}", dependencies=[Depends(require_kb_editor)])
 def delete_document(knowledge_id: str, document_id: str) -> dict:
     """Elimina un documento, i suoi chunk da Qdrant e il PDF dal disco."""
     kb = get_knowledge(knowledge_id)
@@ -166,8 +165,9 @@ def delete_document(knowledge_id: str, document_id: str) -> dict:
                 )
             ),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception('Qdrant delete failed for document %s', document_id)
+        raise HTTPException(status_code=502, detail="Indice vettoriale non raggiungibile") from exc
 
     # Elimina il PDF dal disco
     delete_pdf_from_disk(knowledge_id, document_id)
