@@ -37,3 +37,27 @@ I riepiloghi paginano il database fino a 100.000 eventi per filtro; oltre richie
 - Autorizzazioni SQL: `cd supabase/tests && npm test` — suite RLS originaria e suite admin passate, eseguendo entrambe le migrazioni in PGlite con schema auth simulato.
 - Frontend: `cd frontend && npm run lint && npm run build` — verificati; la build segnala alcuni bundle grandi già legati all'editor e alla sintassi dei messaggi.
 - Browser: `node frontend/tests/integrated-ui.cjs` con Vite su `127.0.0.1:5173`, Playwright disponibile e, opzionalmente, `CHROME_PATH`. Passati: PDF nella stessa pagina, testo evidenziato, cambio pagina, bozza conservata, compressione, ridimensionamento, mobile, moduli admin, consumi e blocco admin per utenti ordinari. Autenticazione/API simulate e PDF reale locale. Nessuna verifica effettuata sul server di produzione, nessun accesso a credenziali riservate.
+
+## Modello IAM (migrazione `202610140001_iam_ownership.sql`)
+
+Ruoli applicativi:
+
+| Ruolo | Crea knowledge | Carica documenti | Gestisce utenti/quote |
+| --- | --- | --- | --- |
+| `admin` | Sì | Ovunque | Sì |
+| `member` | Sì (ne diventa proprietario) | Proprie o dove è editor | No |
+| `viewer` | No | No | No |
+
+Migrazione dei vecchi ruoli: `manager` → `member`, `user` → `viewer`, quindi nessuno guadagna permessi.
+
+Knowledge: `owner_user_id` + `visibility` (`private` predefinita, `organization` = lettura per tutti).
+Assegnazioni in `knowledge_members.role`: `editor` | `viewer`. Un account `viewer` non può essere editor.
+Il proprietario condivide dalla pagina Knowledge; l'admin anche dal pannello, dove può trasferire la proprietà.
+I permessi sono calcolati solo in SQL (`chatbot_kb_permission`, colonna calcolata `permission`):
+backend e frontend li leggono, non li ricalcolano.
+
+Revoca: le chat legate a una knowledge non più accessibile non sono leggibili; eliminare una knowledge elimina anche le chat collegate.
+
+Applicazione: eseguire la migrazione come `supabase_admin`. `chatbot_admin_save` cancella righe in
+`auth.sessions`/`auth.refresh_tokens`: la migrazione la assegna a `supabase_admin`; se l'owner resta `postgres`,
+reset password e revoca sessioni falliscono con permesso negato.

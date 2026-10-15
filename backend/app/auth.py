@@ -1,9 +1,11 @@
-"""Supabase ES256 authentication. No shared secrets or privileged keys."""
+"""Supabase ES256 authentication. Token checks use only the public JWKS;
+the live role and account state come from app_profiles on every request."""
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 from uuid import UUID
+from datetime import datetime
 
 import jwt
 import requests
@@ -17,9 +19,12 @@ from app.config import settings
 class User:
     id: str
     token: str
-    is_admin: bool
-    app_role: str = "user"
+    role: str | None = None  # admin | member | viewer, loaded from app_profiles
     issued_at: int = 0
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == 'admin'
 
 
 request_user: ContextVar[User] = ContextVar('request_user')
@@ -59,7 +64,7 @@ def verify_token(token: str) -> User:
         user_id = str(UUID(claims['sub']))
         if claims.get('role') != 'authenticated':
             raise ValueError('Session role required')
-        return User(user_id, token, claims.get('app_metadata', {}).get('chatbot_role') == 'admin', issued_at=int(claims['iat']))
+        return User(user_id, token, issued_at=int(claims['iat']))
     except (jwt.PyJWKClientConnectionError,) as exc:
         raise HTTPException(503, 'Servizio di autenticazione temporaneamente non disponibile') from exc
     except (jwt.PyJWTError, ValueError, KeyError, TypeError) as exc:
@@ -77,12 +82,11 @@ async def current_user(request: Request, credentials: HTTPAuthorizationCredentia
         if not profiles or not profiles[0]['active']:
             raise HTTPException(403, 'Account sospeso o non abilitato')
         profile = profiles[0]
-        from datetime import datetime
         if user.issued_at < datetime.fromisoformat(profile['session_valid_after'].replace('Z','+00:00')).timestamp():
             raise HTTPException(401, 'Sessione revocata. Accedi nuovamente.')
         if profile['must_change_password'] and request.url.path not in ('/api/account/me','/api/account/password'):
             raise HTTPException(403, 'Devi cambiare la password prima di continuare')
-        user = replace(user, is_admin=profile['role']=='admin', app_role=profile['role'])
+        user = replace(user, role=profile['role'])
         request_user.set(user)
         yield user
     finally:
@@ -95,8 +99,21 @@ def require_admin(user: User = Depends(current_user)):
     return user
 
 
-def require_kb_manager(knowledge_id: str, user: User = Depends(current_user)):
-    from app.core.supabase import rest, identifier
-    if not rest('POST', 'rpc/chatbot_kb_access', body={'kb': identifier(knowledge_id), 'manage': True}):
-        raise HTTPException(403, 'Gestione della knowledge base non consentita')
+def require_kb(level: str, message: str):
+    """Dependency factory: the permission is decided by SQL (chatbot_kb_access), never here."""
+    def dependency(knowledge_id: str, user: User = Depends(current_user)):
+        from app.core.supabase import rest, identifier
+        if not rest('POST', 'rpc/chatbot_kb_access', body={'kb': identifier(knowledge_id), 'level': level}):
+            raise HTTPException(403, message)
+        return user
+    return dependency
+
+
+require_kb_editor = require_kb('edit', 'Non puoi modificare i documenti di questa knowledge base')
+require_kb_owner = require_kb('own', 'Solo il proprietario o un amministratore può farlo')
+
+
+def require_creator(user: User = Depends(current_user)):
+    if user.role not in ('admin', 'member'):
+        raise HTTPException(403, 'Il tuo account è in sola lettura')
     return user

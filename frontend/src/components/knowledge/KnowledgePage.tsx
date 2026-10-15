@@ -1,8 +1,8 @@
 import { useReader } from '@/context/ReaderContext';
-import { useAuthUser } from '@/auth/AuthContext';
+import { useProfile } from '@/auth/AuthContext';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Clock3, FileText, FolderPlus, Loader2, Plus, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { Clock3, FileText, FolderPlus, Loader2, Plus, RotateCcw, Settings2, Trash2, Upload, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,10 +36,14 @@ import {
   fetchDocuments,
   retryImport,
   uploadDocuments,
+  updateKnowledge,
   type DocumentItem,
   type ImportJobItem,
   type KnowledgeItem,
+  type KnowledgeVisibility,
 } from '@/api/client';
+import { KnowledgeAccessForm } from '@/components/knowledge/KnowledgeAccessForm';
+import { permissionLabel, selectClass, visibilityLabel } from '@/lib/knowledge';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 import { errorMessage, formatDate } from '@/lib/format';
@@ -52,10 +56,13 @@ type Pending =
 
 export function KnowledgePage() {
   const reader = useReader();
-  const isAdmin = useAuthUser().app_metadata.chatbot_role === 'admin';
+  const { canCreateKnowledge } = useProfile();
   const { knowledges, reloadKnowledges, selectedKnowledgeId, setSelectedKnowledgeId } = useApp();
   const selected = knowledges.find((k) => k.id === selectedKnowledgeId) ?? null;
-  const canManage = !!selected?.can_manage;
+  // Permessi calcolati dal database e restituiti dall'API.
+  const canEdit = !!selected?.can_edit;
+  const canOwn = !!selected?.can_own;
+  const [dialog, setDialog] = useState<'share' | 'edit' | null>(null);
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [jobs, setJobs] = useState<ImportJobItem[]>([]);
@@ -98,7 +105,7 @@ export function KnowledgePage() {
   }, [selectedId, hasRunningJobs, loadDocuments, reloadKnowledges]);
 
   const upload = async (files: File[]) => {
-    if (!selected || !canManage) return;
+    if (!selected || !canEdit) return;
     const pdfs = files.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     if (pdfs.length === 0) {
       toast.error('Solo file PDF');
@@ -158,7 +165,7 @@ export function KnowledgePage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader title="Knowledge base">
-        {isAdmin && <CreateKnowledgeDialog
+        {canCreateKnowledge && <CreateKnowledgeDialog
           onCreated={async (kb) => {
             await reloadKnowledges();
             setSelectedKnowledgeId(kb.id);
@@ -170,7 +177,9 @@ export function KnowledgePage() {
         <div className="mx-auto grid max-w-6xl gap-6 p-4 md:grid-cols-[280px_1fr] md:p-6">
           <section aria-label="Elenco knowledge base" className="space-y-2">
             {knowledges.length === 0 && (
-              <p className="text-muted-foreground text-sm">Nessuna knowledge base disponibile.</p>
+              <p className="text-muted-foreground text-sm">
+                {canCreateKnowledge ? 'Nessuna knowledge base: creane una con «Nuova».' : 'Nessuna knowledge base condivisa con te.'}
+              </p>
             )}
             {knowledges.map((kb) => (
               <Card
@@ -189,6 +198,9 @@ export function KnowledgePage() {
                     <span className="truncate">{kb.name}</span>
                     <Badge variant="secondary">{kb.documents_count}</Badge>
                   </CardTitle>
+                  <p className="text-muted-foreground text-xs">
+                    {kb.permission ? permissionLabel[kb.permission] : ''} · {visibilityLabel[kb.visibility]}
+                  </p>
                   {kb.description && (
                     <CardDescription className="line-clamp-2 text-xs">{kb.description}</CardDescription>
                   )}
@@ -208,20 +220,30 @@ export function KnowledgePage() {
                   <div className="min-w-0">
                     <h2 className="truncate text-lg font-semibold">{selected.name}</h2>
                     <p className="text-muted-foreground text-sm">
-                      Creata il {formatDate(selected.created_at)} · {selected.documents_count} documenti
+                      Creata il {formatDate(selected.created_at)} · {selected.documents_count} documenti · {visibilityLabel[selected.visibility]}
                     </p>
+                    {selected.description && <p className="text-muted-foreground mt-1 text-sm">{selected.description}</p>}
                   </div>
-                  {isAdmin && <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => setPending({ kind: 'kb', item: selected })}
-                  >
-                    <Trash2 /> Elimina
-                  </Button>}
+                  {canOwn && <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => setDialog('edit')}><Settings2 /> Modifica</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setDialog('share')}><Users /> Condividi</Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setPending({ kind: 'kb', item: selected })}
+                    >
+                      <Trash2 /> Elimina
+                    </Button>
+                  </div>}
                 </div>
+                {!canEdit && (
+                  <p className="text-muted-foreground rounded-lg border px-3 py-2 text-sm">
+                    Accesso in sola lettura: puoi consultare i documenti e usarli in chat.
+                  </p>
+                )}
 
-                {canManage && <button
+                {canEdit && <button
                   type="button"
                   disabled={uploading}
                   onClick={() => fileInput.current?.click()}
@@ -287,7 +309,7 @@ export function KnowledgePage() {
                           Tentativo {job.attempts}/{job.max_attempts} · {job.progress}%
                         </p>
                       </div>
-                      {canManage && job.status === 'failed' && <Button
+                      {canEdit && job.status === 'failed' && <Button
                         variant="outline" size="sm" onClick={() => retry(job)}
                       >
                         <RotateCcw /> Riprova
@@ -323,7 +345,7 @@ export function KnowledgePage() {
                             {formatDate(doc.uploaded_at)} · {doc.chunks_count} parti
                           </p>
                         </div>
-                        {canManage && <Button
+                        {canEdit && <Button
                           variant="ghost"
                           size="icon"
                           className="size-8 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
@@ -341,6 +363,21 @@ export function KnowledgePage() {
           </section>
         </div>
       </div>
+
+      <Dialog open={!!selected && dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
+        <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{dialog === 'share' ? 'Condividi knowledge base' : 'Modifica knowledge base'}</DialogTitle>
+            <DialogDescription>{selected?.name}</DialogDescription>
+          </DialogHeader>
+          {selected && dialog === 'share' && (
+            <KnowledgeAccessForm knowledgeId={selected.id} onSaved={() => { setDialog(null); reloadKnowledges(); }} />
+          )}
+          {selected && dialog === 'edit' && (
+            <EditKnowledgeForm kb={selected} onSaved={async () => { setDialog(null); await reloadKnowledges(); }} />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>
         <AlertDialogContent>
@@ -379,6 +416,7 @@ function CreateKnowledgeDialog({ onCreated }: { onCreated: (kb: KnowledgeItem) =
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [visibility, setVisibility] = useState<KnowledgeVisibility>('private');
   const [saving, setSaving] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -386,7 +424,7 @@ function CreateKnowledgeDialog({ onCreated }: { onCreated: (kb: KnowledgeItem) =
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const kb = await createKnowledge(name.trim(), description.trim());
+      const kb = await createKnowledge(name.trim(), description.trim(), visibility);
       await onCreated(kb);
       toast.success(`Creata «${kb.name}»`);
       setOpen(false);
@@ -427,6 +465,14 @@ function CreateKnowledgeDialog({ onCreated }: { onCreated: (kb: KnowledgeItem) =
               placeholder="Facoltativa"
             />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="kb-new-visibility">Visibilità</Label>
+            <select id="kb-new-visibility" className={`${selectClass} w-full`} value={visibility} onChange={(e) => setVisibility(e.target.value as KnowledgeVisibility)}>
+              <option value="private">{visibilityLabel.private}: solo tu e chi inviterai</option>
+              <option value="organization">{visibilityLabel.organization}: tutti possono leggerla</option>
+            </select>
+            <p className="text-muted-foreground text-xs">Ne sarai il proprietario. Gli amministratori possono sempre accedervi.</p>
+          </div>
           <DialogFooter>
             <Button type="submit" disabled={saving || !name.trim()}>
               {saving && <Loader2 className="animate-spin" />} Crea
@@ -435,5 +481,40 @@ function CreateKnowledgeDialog({ onCreated }: { onCreated: (kb: KnowledgeItem) =
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EditKnowledgeForm({ kb, onSaved }: { kb: KnowledgeItem; onSaved: () => Promise<void> }) {
+  const [name, setName] = useState(kb.name);
+  const [description, setDescription] = useState(kb.description);
+  const [saving, setSaving] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await updateKnowledge(kb.id, name.trim(), description.trim());
+      toast.success('Knowledge base aggiornata');
+      await onSaved();
+    } catch (err) {
+      toast.error(errorMessage(err, 'Salvataggio non riuscito'));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="kb-edit-name">Nome</Label>
+        <Input id="kb-edit-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} required />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="kb-edit-desc">Descrizione</Label>
+        <Textarea id="kb-edit-desc" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} />
+      </div>
+      <DialogFooter>
+        <Button type="submit" disabled={saving || !name.trim()}>{saving && <Loader2 className="animate-spin" />} Salva</Button>
+      </DialogFooter>
+    </form>
   );
 }

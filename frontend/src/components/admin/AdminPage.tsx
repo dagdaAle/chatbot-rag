@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Navigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { useAuthUser } from '@/auth/AuthContext';
+import { useProfile } from '@/auth/AuthContext';
+import { KnowledgeAccessForm } from '@/components/knowledge/KnowledgeAccessForm';
+import { selectClass, visibilityLabel } from '@/lib/knowledge';
 import { api, apiBase, type Profile, type AdminKnowledge, type AdminModel, type Member, type UsageData, type AuditEntry } from '@/api/admin';
 import { authFetch } from '@/auth/supabase';
 import { PageHeader } from '@/components/layout/AppLayout';
@@ -10,8 +12,12 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-const selectClass = 'border-input bg-background h-9 rounded-md border px-3 text-sm';
-const roleName = { admin: 'Amministratore', manager: 'Gestore KB', user: 'Utente' };
+const roleName: Record<Profile['role'], string> = { admin: 'Amministratore', member: 'Utente operativo', viewer: 'Lettore' };
+const roleHelp: Record<Profile['role'], string> = {
+  admin: 'Gestisce utenti, quote e tutte le knowledge base.',
+  member: 'Crea knowledge base, carica documenti, condivide le proprie.',
+  viewer: 'Consulta e usa in chat solo ciò che gli viene condiviso.',
+};
 function ErrorBox({ error }: { error: string }) { return error ? <p role="alert" className="text-destructive rounded-md border p-3 text-sm">{error}</p> : null; }
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />{label}</label>;
@@ -29,6 +35,7 @@ function UserEditor({ user, onSaved }: { user: Profile; onSaved: () => void }) {
     <form className="space-y-4" onSubmit={e => { e.preventDefault(); run(() => api(`admin/users/${user.id}`, 'PUT', draft), 'Permessi aggiornati'); }}>
       <Field label="Nome"><Input value={draft.display_name} onChange={e => setDraft({ ...draft, display_name: e.target.value })} maxLength={200} /></Field>
       <Field label="Ruolo"><select className={selectClass} value={draft.role} onChange={e => setDraft({ ...draft, role: e.target.value as Profile['role'] })}>{Object.entries(roleName).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></Field>
+      <p className="text-muted-foreground -mt-2 text-xs">{roleHelp[draft.role]}</p>
       <Check label="Account attivo" checked={draft.active} onChange={active => setDraft({ ...draft, active })} />
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Richieste/mese"><Input type="number" min={1} placeholder="Illimitate" value={draft.monthly_requests ?? ''} onChange={e => setDraft({ ...draft, monthly_requests: e.target.value ? Number(e.target.value) : null })} /></Field>
@@ -50,28 +57,19 @@ function UserEditor({ user, onSaved }: { user: Profile; onSaved: () => void }) {
   </div>;
 }
 function CreateUserForm({ onSaved }: { onSaved: () => void }) {
-  const [email, setEmail] = useState(''); const [name, setName] = useState(''); const [password, setPassword] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const [email, setEmail] = useState(''); const [name, setName] = useState(''); const [password, setPassword] = useState(''); const [role, setRole] = useState<Profile['role']>('member'); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   async function submit(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('');
-    try { await api('admin/users', 'POST', { email, display_name: name, password }); setPassword(''); toast.success('Utente creato: comunica la password temporanea attraverso un canale riservato'); onSaved(); }
+    try { await api('admin/users', 'POST', { email, display_name: name, password, role }); setPassword(''); toast.success('Utente creato: comunica la password temporanea attraverso un canale riservato'); onSaved(); }
     catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
-  return <form className="space-y-4" onSubmit={submit}><Field label="Nome"><Input value={name} onChange={e => setName(e.target.value)} /></Field><Field label="Email"><Input type="email" required value={email} onChange={e => setEmail(e.target.value)} /></Field><Field label="Password temporanea (almeno 12 caratteri)"><Input type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={e => setPassword(e.target.value)} /></Field><p className="text-muted-foreground text-xs">Creazione diretta senza invio email. Il cambio password al primo accesso è obbligatorio.</p><ErrorBox error={error} /><Button disabled={busy}>Crea utente</Button></form>;
+  return <form className="space-y-4" onSubmit={submit}><Field label="Nome"><Input value={name} onChange={e => setName(e.target.value)} /></Field><Field label="Email"><Input type="email" required value={email} onChange={e => setEmail(e.target.value)} /></Field><Field label="Ruolo"><select className={selectClass} value={role} onChange={e => setRole(e.target.value as Profile['role'])}>{Object.entries(roleName).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field><p className="text-muted-foreground -mt-2 text-xs">{roleHelp[role]}</p><Field label="Password temporanea (almeno 12 caratteri)"><Input type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={e => setPassword(e.target.value)} /></Field><p className="text-muted-foreground text-xs">Creazione diretta senza invio email. Il cambio password al primo accesso è obbligatorio.</p><ErrorBox error={error} /><Button disabled={busy}>Crea utente</Button></form>;
 }
-function Members({ users, members, setMembers, manage = false }: { users: Profile[]; members: Member[]; setMembers: (value: Member[]) => void; manage?: boolean }) {
+function Members({ users, members, setMembers }: { users: Profile[]; members: Member[]; setMembers: (value: Member[]) => void }) {
   return <div className="max-h-56 space-y-3 overflow-auto rounded-md border p-3">{users.filter(u => u.role !== 'admin').map(user => {
     const member = members.find(m => m.user_id === user.id);
-    return <div key={user.id} className="flex flex-wrap items-center justify-between gap-2"><Check label={`${user.display_name || user.email}${!user.active ? ' (sospeso)' : ''}`} checked={!!member} onChange={checked => setMembers(checked ? [...members, { user_id: user.id, can_manage: false }] : members.filter(m => m.user_id !== user.id))} />
-      {manage && member && user.role === 'manager' && <Check label="Gestisce documenti" checked={!!member.can_manage} onChange={can_manage => setMembers(members.map(m => m.user_id === user.id ? { ...m, can_manage } : m))} />}</div>;
+    return <Check key={user.id} label={`${user.display_name || user.email}${!user.active ? ' (sospeso)' : ''}`} checked={!!member} onChange={checked => setMembers(checked ? [...members, { user_id: user.id }] : members.filter(m => m.user_id !== user.id))} />;
   })}</div>;
-}
-function KnowledgeEditor({ kb, users, initial, onSaved }: { kb: AdminKnowledge; users: Profile[]; initial: Member[]; onSaved: () => void }) {
-  const [shared, setShared] = useState(kb.shared); const [members, setMembers] = useState(initial); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  return <form className="space-y-4" onSubmit={async e => { e.preventDefault(); setBusy(true); setError(''); try { await api(`admin/knowledge/${kb.id}/access`, 'PUT', { shared, members }); toast.success('Accessi aggiornati'); onSaved(); } catch (err) { setError((err as Error).message); } finally { setBusy(false); } }}>
-    <Check label="Visibile a tutti gli utenti attivi" checked={shared} onChange={setShared} />
-    <p className="text-muted-foreground text-xs">Gli amministratori accedono sempre. Assegna gli utenti quando la KB è riservata; abilita la gestione documenti per i gestori.</p>
-    <Members users={users} members={members} setMembers={setMembers} manage /><ErrorBox error={error} /><Button disabled={busy}>Salva accessi</Button>
-  </form>;
 }
 function ModelEditor({ model, users, initial, onSaved }: { model?: AdminModel; users: Profile[]; initial: Member[]; onSaved: () => void }) {
   const [draft, setDraft] = useState<AdminModel>(model || { key: '', provider: 'ollama', model_id: '', kind: 'chat', name: '', enabled: true, shared: true, input_per_million: null, output_per_million: null, currency: 'USD' });
@@ -120,20 +118,20 @@ export function UsagePanel({ users = [], personal = false }: { users?: Profile[]
 }
 
 export function AdminPage() {
-  const user = useAuthUser();
-  if (user.app_metadata.chatbot_role !== 'admin') return <Navigate to="/" replace />;
+  const { isAdmin } = useProfile();
+  if (!isAdmin) return <Navigate to="/" replace />;
   return <AdminContent />;
 }
 function AdminContent() {
   const [users, setUsers] = useState<Profile[]>([]); const [knowledge, setKnowledge] = useState<AdminKnowledge[]>([]); const [models, setModels] = useState<AdminModel[]>([]);
-  const [kbMembers, setKbMembers] = useState<Member[]>([]); const [modelMembers, setModelMembers] = useState<Member[]>([]); const [audit, setAudit] = useState<AuditEntry[]>([]); const [auditOffset, setAuditOffset] = useState(0);
+  const [modelMembers, setModelMembers] = useState<Member[]>([]); const [audit, setAudit] = useState<AuditEntry[]>([]); const [auditOffset, setAuditOffset] = useState(0);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [filter, setFilter] = useState('');
   const [editor, setEditor] = useState<{ kind: 'user' | 'create-user' | 'knowledge' | 'model'; id?: string } | null>(null);
   const reload = useCallback(async () => {
     setLoading(true); setError('');
-    const results = await Promise.allSettled([api<Profile[]>('admin/users'), api<{ knowledge: AdminKnowledge[]; members: Member[] }>('admin/knowledge'), api<{ models: AdminModel[]; members: Member[] }>('admin/models')]);
+    const results = await Promise.allSettled([api<Profile[]>('admin/users'), api<{ knowledge: AdminKnowledge[] }>('admin/knowledge'), api<{ models: AdminModel[]; members: Member[] }>('admin/models')]);
     const [u, k, m] = results;
-    if (u.status === 'fulfilled') setUsers(u.value); if (k.status === 'fulfilled') { setKnowledge(k.value.knowledge); setKbMembers(k.value.members); } if (m.status === 'fulfilled') { setModels(m.value.models); setModelMembers(m.value.members); }
+    if (u.status === 'fulfilled') setUsers(u.value); if (k.status === 'fulfilled') { setKnowledge(k.value.knowledge); } if (m.status === 'fulfilled') { setModels(m.value.models); setModelMembers(m.value.members); }
     const failures = results.flatMap(r => r.status === 'rejected' ? [r.reason.message] : []); setError(failures.join(' · ')); setLoading(false);
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch of administrative data
@@ -146,7 +144,7 @@ function AdminContent() {
       <TabsContent value="users" className="space-y-4"><div className="flex gap-3"><Input aria-label="Cerca utenti" placeholder="Cerca nome o email" value={filter} onChange={e => setFilter(e.target.value)} /><Button onClick={() => setEditor({ kind: 'create-user' })}>Nuovo utente</Button></div>
         <div className="overflow-auto"><table className="w-full text-left text-sm"><thead><tr>{['Utente', 'Ruolo', 'Stato', 'Limite mensile', ''].map((h, i) => <th className="p-3" key={i}>{h}</th>)}</tr></thead><tbody>{users.filter(u => `${u.display_name} ${u.email}`.toLowerCase().includes(filter.toLowerCase())).map(u => <tr key={u.id} className="border-t"><td className="p-3">{u.display_name || u.email}<p className="text-muted-foreground text-xs">{u.email}</p></td><td className="p-3">{roleName[u.role]}</td><td className="p-3">{!u.active ? 'Sospeso' : u.must_change_password ? 'Cambio password richiesto' : 'Attivo'}</td><td className="p-3">{u.monthly_requests ?? 'Illimitato'}</td><td className="p-3"><Button variant="outline" size="sm" onClick={() => setEditor({ kind: 'user', id: u.id })}>Gestisci</Button></td></tr>)}</tbody></table></div>
       </TabsContent>
-      <TabsContent value="knowledge" className="space-y-3">{knowledge.map(k => <div key={k.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"><div><p className="font-medium">{k.name}</p><p className="text-muted-foreground text-xs">{k.shared ? 'Condivisa con tutti' : 'Accesso su assegnazione'} · {k.documents.reduce((n, d) => n + (d.count || 0), 0)} documenti</p></div><Button variant="outline" onClick={() => setEditor({ kind: 'knowledge', id: k.id })}>Gestisci accessi</Button></div>)}{!knowledge.length && <p>Nessuna knowledge base. Creala dalla sezione Knowledge base.</p>}</TabsContent>
+      <TabsContent value="knowledge" className="space-y-3">{knowledge.map(k => <div key={k.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"><div><p className="font-medium">{k.name}</p><p className="text-muted-foreground text-xs">{visibilityLabel[k.visibility]} · proprietario {users.find(u => u.id === k.owner_user_id)?.email || '—'} · {k.documents.reduce((n, d) => n + (d.count || 0), 0)} documenti</p></div><Button variant="outline" onClick={() => setEditor({ kind: 'knowledge', id: k.id })}>Gestisci accessi</Button></div>)}{!knowledge.length && <p>Nessuna knowledge base. Creala dalla sezione Knowledge base.</p>}</TabsContent>
       <TabsContent value="models" className="space-y-3"><Button onClick={() => setEditor({ kind: 'model' })}>Aggiungi modello</Button>{models.map(m => <div key={m.key} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"><div><p className="font-medium">{m.name}</p><p className="text-muted-foreground text-xs">{m.key} · {m.enabled ? 'Abilitato' : 'Disabilitato'} · {m.shared ? 'Tutti' : 'Assegnato'}</p></div><Button variant="outline" onClick={() => setEditor({ kind: 'model', id: m.key })}>Configura</Button></div>)}</TabsContent>
       <TabsContent value="usage"><UsagePanel users={users} /></TabsContent>
       <TabsContent value="audit" className="space-y-3">{audit.map(entry => <div key={entry.id} className="border-b py-3 text-sm"><p>{entry.action} · {users.find(u => u.id === entry.actor_id)?.email || entry.actor_id}</p><p className="text-muted-foreground text-xs">{new Date(entry.created_at).toLocaleString('it-IT')} · {entry.target}</p></div>)}<div className="flex gap-3"><Button variant="outline" disabled={!auditOffset} onClick={() => setAuditOffset(v => Math.max(0, v - 100))}>Precedenti</Button><Button variant="outline" disabled={audit.length < 100} onClick={() => setAuditOffset(v => v + 100)}>Successivi</Button></div></TabsContent>
@@ -154,7 +152,7 @@ function AdminContent() {
     <Dialog open={!!editor} onOpenChange={open => !open && setEditor(null)}><DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl"><DialogHeader><DialogTitle>{editor?.kind === 'user' ? 'Gestisci utente' : editor?.kind === 'create-user' ? 'Nuovo utente' : editor?.kind === 'knowledge' ? 'Accessi knowledge base' : 'Configura modello'}</DialogTitle><DialogDescription>Le modifiche ai permessi vengono verificate anche dal server e registrate.</DialogDescription></DialogHeader>
       {editor?.kind === 'user' && users.find(u => u.id === editor.id) && <UserEditor key={editor.id} user={users.find(u => u.id === editor.id)!} onSaved={saved} />}
       {editor?.kind === 'create-user' && <CreateUserForm onSaved={saved} />}
-      {editor?.kind === 'knowledge' && knowledge.find(k => k.id === editor.id) && <KnowledgeEditor key={editor.id} kb={knowledge.find(k => k.id === editor.id)!} users={users} initial={kbMembers.filter(m => m.knowledge_id === editor.id)} onSaved={saved} />}
+      {editor?.kind === 'knowledge' && editor.id && <KnowledgeAccessForm key={editor.id} knowledgeId={editor.id} allowOwnerTransfer onSaved={saved} />}
       {editor?.kind === 'model' && <ModelEditor key={editor.id || 'new'} model={models.find(m => m.key === editor.id)} users={users} initial={modelMembers.filter(m => m.model_key === editor.id)} onSaved={saved} />}
     </DialogContent></Dialog>
   </div></div>;
