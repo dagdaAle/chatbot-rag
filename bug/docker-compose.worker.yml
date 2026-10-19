@@ -1,0 +1,20 @@
+services:
+  import-worker:
+    image: '${CHATBOT_RAG_IMAGE:-1kx2w4ye7sd5jb9awemsq7yy:40bc8b3a28495929a5913c4c1f410877aa9f733d}'
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    env_file:
+      - .env
+    volumes:
+      - backend_data:/data
+    networks:
+      - coolify
+
+volumes:
+  backend_data:
+    external: true
+    name: ${CHATBOT_RAG_DATA_VOLUME:-backend_data}
+
+networks:
+  coolify:
+    external: true
