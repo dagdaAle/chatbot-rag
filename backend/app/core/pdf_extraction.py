@@ -7,32 +7,71 @@ from app.config import settings
 
 _conversion_lock = Lock()
 _converter = None
+_converter_ocr = None
 SCHEMA_VERSION = 1
 
+_OCR_SAMPLE_PAGES = 5
+_OCR_MIN_CHARS_PER_PAGE = 200
 
-def _get_converter():
-    global _converter
+
+def has_native_text(content: bytes) -> bool:
+    """True when the PDF already carries selectable text, so OCR would be wasted work.
+
+    Digitally generated PDFs (catalogues, price lists) embed their text: running
+    Tesseract over every page costs hundreds of seconds and can push a long document
+    past ``pdf_conversion_timeout``, which turns a perfectly readable file into a
+    failed import. Sampling a few pages is enough to tell the two cases apart.
+    """
+    from pypdf import PdfReader
+
+    try:
+        reader = PdfReader(io.BytesIO(content))
+    except Exception:  # malformed or encrypted: let Docling report the real error
+        return False
+    pages = min(_OCR_SAMPLE_PAGES, len(reader.pages))
+    if pages == 0:
+        return False
+    chars = 0
+    for index in range(pages):
+        try:
+            chars += len((reader.pages[index].extract_text() or "").strip())
+        except Exception:
+            return False
+    return chars >= _OCR_MIN_CHARS_PER_PAGE * pages
+
+
+def _build_converter(*, do_ocr: bool):
+    from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    options = PdfPipelineOptions(
+        do_ocr=do_ocr,
+        do_table_structure=True,
+        enable_remote_services=False,
+        document_timeout=settings.pdf_conversion_timeout,
+        accelerator_options=AcceleratorOptions(device=AcceleratorDevice.CPU, num_threads=2),
+    )
+    if do_ocr:
+        options.ocr_options = TesseractCliOcrOptions(lang=["ita", "eng"])
+    if settings.docling_artifacts_path:
+        options.artifacts_path = settings.docling_artifacts_path
+    options.heading_hierarchy_options.enabled = True
+    return DocumentConverter(
+        allowed_formats=[InputFormat.PDF],
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
+    )
+
+
+def _get_converter(*, do_ocr: bool):
+    global _converter, _converter_ocr
+    if do_ocr:
+        if _converter_ocr is None:
+            _converter_ocr = _build_converter(do_ocr=True)
+        return _converter_ocr
     if _converter is None:
-        from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions
-        from docling.document_converter import DocumentConverter, PdfFormatOption
-
-        options = PdfPipelineOptions(
-            do_ocr=True,
-            do_table_structure=True,
-            enable_remote_services=False,
-            document_timeout=settings.pdf_conversion_timeout,
-            accelerator_options=AcceleratorOptions(device=AcceleratorDevice.CPU, num_threads=2),
-            ocr_options=TesseractCliOcrOptions(lang=["ita", "eng"]),
-        )
-        if settings.docling_artifacts_path:
-            options.artifacts_path = settings.docling_artifacts_path
-        options.heading_hierarchy_options.enabled = True
-        _converter = DocumentConverter(
-            allowed_formats=[InputFormat.PDF],
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
-        )
+        _converter = _build_converter(do_ocr=False)
     return _converter
 
 
@@ -43,7 +82,8 @@ def extract_structured_pdf(content: bytes) -> dict:
     if not _conversion_lock.acquire(timeout=5):
         raise ValueError("Un PDF è già in elaborazione. Riprova fra poco.")
     try:
-        result = _get_converter().convert(
+        needs_ocr = not has_native_text(content)
+        result = _get_converter(do_ocr=needs_ocr).convert(
             DocumentStream(name="document.pdf", stream=io.BytesIO(content)),
             raises_on_error=True,
             max_num_pages=settings.pdf_max_pages,
@@ -56,6 +96,7 @@ def extract_structured_pdf(content: bytes) -> dict:
             "schema_version": SCHEMA_VERSION,
             "extractor": "docling",
             "extractor_version": version("docling"),
+            "ocr_applied": needs_ocr,
             "document": document.export_to_dict(),
             "blocks": normalize_document(document),
         }
