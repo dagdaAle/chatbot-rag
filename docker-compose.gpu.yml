@@ -1,0 +1,17 @@
+# GPU override for the import worker:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d import-worker
+# Requires nvidia-container-toolkit on the host. VRAM is shared with Ollama.
+services:
+  import-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.cuda
+    environment:
+      - PDF_DEVICE=${PDF_DEVICE:-cuda}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -1,10 +1,12 @@
 """Local PDF conversion and structure-aware chunks with traceable provenance."""
 import io
+import logging
 from importlib.metadata import version
 from threading import Lock
 
 from app.config import settings
 
+logger = logging.getLogger(__name__)
 _conversion_lock = Lock()
 _converter = None
 _converter_ocr = None
@@ -40,8 +42,24 @@ def has_native_text(content: bytes) -> bool:
     return chars >= _OCR_MIN_CHARS_PER_PAGE * pages
 
 
+def _accelerator_device():
+    """CUDA only when asked for and actually usable, so PDF_DEVICE=cuda never breaks a CPU host."""
+    from docling.datamodel.accelerator_options import AcceleratorDevice
+
+    if settings.pdf_device == "cuda":
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                return AcceleratorDevice.CUDA
+        except Exception:
+            pass
+        logger.warning("PDF_DEVICE=cuda but CUDA is not available: falling back to CPU")
+    return AcceleratorDevice.CPU
+
+
 def _build_converter(*, do_ocr: bool):
-    from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+    from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions
     from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -51,7 +69,9 @@ def _build_converter(*, do_ocr: bool):
         do_table_structure=True,
         enable_remote_services=False,
         document_timeout=settings.pdf_conversion_timeout,
-        accelerator_options=AcceleratorOptions(device=AcceleratorDevice.CPU, num_threads=2),
+        accelerator_options=AcceleratorOptions(
+            device=_accelerator_device(), num_threads=settings.pdf_cpu_threads
+        ),
     )
     if do_ocr:
         options.ocr_options = TesseractCliOcrOptions(lang=["ita", "eng"])

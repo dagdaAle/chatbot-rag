@@ -92,7 +92,7 @@ def test_missing_provenance_is_not_fabricated():
 
 def test_partial_conversion_never_indexes_or_falls_back(monkeypatch):
     from docling.datamodel.base_models import ConversionStatus
-    monkeypatch.setattr(pdf_extraction, "_get_converter", lambda: SimpleNamespace(
+    monkeypatch.setattr(pdf_extraction, "_get_converter", lambda **_: SimpleNamespace(
         convert=lambda *a, **kw: SimpleNamespace(status=ConversionStatus.PARTIAL_SUCCESS)))
     with pytest.raises(ValueError, match="incompleta"):
         pdf_extraction.extract_structured_pdf(b"%PDF")
@@ -102,7 +102,7 @@ def test_partial_conversion_never_indexes_or_falls_back(monkeypatch):
 def test_conversion_errors_release_lock(monkeypatch):
     def fail(*args, **kwargs):
         raise RuntimeError("conversion failure")
-    monkeypatch.setattr(pdf_extraction, "_get_converter", lambda: SimpleNamespace(convert=fail))
+    monkeypatch.setattr(pdf_extraction, "_get_converter", lambda **_: SimpleNamespace(convert=fail))
     with pytest.raises(RuntimeError, match="conversion failure"):
         pdf_extraction.extract_structured_pdf(b"%PDF")
     assert not pdf_extraction._conversion_lock.locked()
@@ -231,3 +231,28 @@ def test_real_local_pdf_table_conversion():
     rows = [r["cells"] for t in tables for r in t["rows"]]
     assert ["001-A", "Prodotto primo", "12,50", "kg"] in rows
     assert ["001/B", "Prodotto secondo", "21,00", "pezzo"] in rows
+
+
+def test_accelerator_uses_cpu_by_default(monkeypatch):
+    from docling.datamodel.accelerator_options import AcceleratorDevice
+
+    monkeypatch.setattr(pdf_extraction.settings, "pdf_device", "cpu")
+    assert pdf_extraction._accelerator_device() == AcceleratorDevice.CPU
+
+
+def test_accelerator_falls_back_to_cpu_without_cuda(monkeypatch):
+    import torch
+    from docling.datamodel.accelerator_options import AcceleratorDevice
+
+    monkeypatch.setattr(pdf_extraction.settings, "pdf_device", "cuda")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert pdf_extraction._accelerator_device() == AcceleratorDevice.CPU
+
+
+def test_accelerator_uses_cuda_when_available(monkeypatch):
+    import torch
+    from docling.datamodel.accelerator_options import AcceleratorDevice
+
+    monkeypatch.setattr(pdf_extraction.settings, "pdf_device", "cuda")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert pdf_extraction._accelerator_device() == AcceleratorDevice.CUDA
