@@ -1,42 +1,11 @@
-# ── Stage 1: Build frontend ──
-FROM node:22-alpine AS frontend-builder
-WORKDIR /app
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci
-COPY frontend/ .
-ARG VITE_SUPABASE_URL=https://supabase.intecha.dev
-ARG VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV
-ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
-ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
-RUN npm run build
-
-# ── Stage 2: Build backend + runtime ──
-FROM python:3.12-slim
-
-WORKDIR /app
-
-# Runtime dependencies (minimi)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libglib2.0-0 \
-    tesseract-ocr tesseract-ocr-eng tesseract-ocr-ita \
-    && rm -rf /var/lib/apt/lists/*
-
-# Backend Python deps
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir -r requirements.txt
-ENV DOCLING_ARTIFACTS_PATH=/opt/docling-models HF_HUB_DISABLE_TELEMETRY=1
-COPY backend/scripts/download_pdf_models.py /tmp/download_pdf_models.py
-RUN python /tmp/download_pdf_models.py
-ENV HF_HUB_OFFLINE=1
-
-# Backend code
-COPY backend/ .
-
-# Frontend build (dallo stage 1)
-COPY --from=frontend-builder /app/dist /app/static
-
-EXPOSE 8000
-
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Base pinned to the reviewed upstream release; override only after compatibility tests.
+ARG OPENWEBUI_IMAGE=ghcr.io/open-webui/open-webui:v0.12.5@sha256:03443b8de6b617da9d900edd09b4bf1cb0ddbfdcba6afb42c548336a0b821ded
+FROM ${OPENWEBUI_IMAGE}
+USER root
+COPY deploy/openwebui/brand.py /tmp/intecha-brand.py
+COPY deploy/openwebui/NOTICE.md /app/INTECHA-NOTICE.md
+COPY deploy/openwebui/UPSTREAM_LICENSE /app/OPEN-WEBUI-LICENSE
+ARG INTECHA_REBRANDING_CONFIRMED
+RUN INTECHA_REBRANDING_CONFIRMED=${INTECHA_REBRANDING_CONFIRMED} python /tmp/intecha-brand.py && rm /tmp/intecha-brand.py
+ENV WEBUI_NAME=Intecha
+# Upstream start.sh, CMD and HEALTHCHECK retained.

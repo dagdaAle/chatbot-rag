@@ -1,5 +1,7 @@
 # Recupero gerarchico
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
 La ricerca ibrida individua i frammenti più rilevanti, chiamati *anchor*. Prima di
 costruire il prompt, il backend usa la struttura estratta da Docling per recuperare
 gli altri chunk appartenenti allo stesso articolo o alla stessa sezione.

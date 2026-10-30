@@ -1,5 +1,7 @@
 # Persistent PDF import worker
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
 Uploads are persisted under `DATA_DIR/imports/<knowledge_id>/<job_id>.pdf` and inserted
 in the Supabase `import_jobs` queue. The HTTP request returns after enqueueing. A
 dedicated Python process claims one job at a time, extracts and embeds it, then writes

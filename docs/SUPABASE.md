@@ -1,5 +1,9 @@
 # Attivazione Supabase
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
+> Stato corrente: applicare tutte e quattro le migrazioni nell’ordine indicato in [AGENTS.md](../AGENTS.md). I passaggi sotto includono il bootstrap storico: il worker attuale richiede Qdrant server, non `QDRANT_LOCAL_PATH`; ruoli e autorizzazioni correnti sono descritti in [ARCHITECTURE.md](ARCHITECTURE.md) e nella sezione IAM di [ADMIN_READER.md](ADMIN_READER.md). Non copiare la configurazione embedded in un deploy con worker.
+
 Il codice usa Auth Supabase ES256, database applicativo via PostgREST con JWT
 utente e RLS, Qdrant per vettori/chunk, PDF sul volume DATA_DIR.
 Per la versione multiutente con admin e consumi, completare questa procedura

@@ -1,5 +1,7 @@
 # Structured PDF ingestion
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
 New uploads use **Docling 2.138.0**, locally on CPU, with layout/table recognition,
 heading hierarchy recovery and Tesseract OCR (`ita`, `eng`). The existing chat,
 embedding provider, KB authorization and PDF download routes remain in use.

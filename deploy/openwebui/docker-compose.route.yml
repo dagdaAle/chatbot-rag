@@ -1,0 +1,11 @@
+# Activate only after migration and smoke tests; route outranks the legacy router.
+services:
+  webui:
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${INTECHA_NETWORK:-coolify}
+      traefik.http.routers.intecha-chat.entrypoints: http
+      traefik.http.routers.intecha-chat.rule: Host(`chatbot.intecha.dev`)
+      traefik.http.routers.intecha-chat.priority: "1000"
+      traefik.http.routers.intecha-chat.service: intecha-chat
+      traefik.http.services.intecha-chat.loadbalancer.server.port: "8080"

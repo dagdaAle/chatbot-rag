@@ -1,5 +1,9 @@
 # Lettore integrato e amministrazione multiutente
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
+> Stato corrente: per ruoli `admin/member/viewer`, proprietà e condivisione KB leggere la sezione finale «Modello IAM». Le sezioni precedenti conservano anche il comportamento pre-migrazione. Quadro completo in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Comportamento
 
 Le fonti si aprono nella stessa pagina della chat: PDF autenticato, pagina citata e testo evidenziato. Il pannello si ridimensiona con il separatore (anche con frecce da tastiera); «Comprimi chat» conserva conversazione e bozza. Su telefono si alternano chat e PDF senza smontare la chat. I vecchi URL `/pdf-viewer` restano compatibili. L'evidenziazione richiede testo estraibile dal PDF: documenti immagine senza OCR o testo diverso dal chunk possono non produrre una corrispondenza; il passaggio originale è comunque consultabile nel lettore.

@@ -1,0 +1,129 @@
+services:
+  anonymizer:
+    build: ./services/anonymizer
+    environment:
+      - ANONYMIZER_TOKEN=${ANONYMIZER_TOKEN:-}
+      - ANONYMIZER_KEY=${ANONYMIZER_KEY:-}
+      - DEVICE=auto
+      - MAPPING_TTL_SECONDS=900
+    volumes:
+      - anonymizer_data:/data
+    networks:
+      - chatbot-net
+    restart: on-failure
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: chatbot-qdrant
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    networks:
+      - chatbot-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chatbot-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_data:/app/data
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
+      - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
+      - ANONYMIZER_URL=http://anonymizer:8000
+      - ANONYMIZER_TOKEN=${ANONYMIZER_TOKEN:-}
+      - ANONYMIZER_CONNECT_TIMEOUT=${ANONYMIZER_CONNECT_TIMEOUT:-5}
+      - ANONYMIZER_READ_TIMEOUT=${ANONYMIZER_READ_TIMEOUT:-120}
+      - ANONYMIZER_MAX_CHARS=${ANONYMIZER_MAX_CHARS:-200000}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_CHAT_MODEL=${DEEPSEEK_CHAT_MODEL:-deepseek-flash}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Ollama gira sul Mac Mini host, usa host.docker.internal per raggiungerlo da Docker
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-llama3.2}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      # Directory dati (montata come volume per persistenza)
+      - DATA_DIR=/app/data
+      - SUPABASE_URL=${SUPABASE_URL:-https://supabase.intecha.dev}
+      - SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV}
+      - SUPABASE_ADMIN_KEY=${SUPABASE_ADMIN_KEY:-}
+      - SUPABASE_JWT_ISSUER=${SUPABASE_JWT_ISSUER:-}
+      - RETRIEVAL_SECTION_MAX_CHARS=${RETRIEVAL_SECTION_MAX_CHARS:-18000}
+      - RETRIEVAL_TOTAL_MAX_CHARS=${RETRIEVAL_TOTAL_MAX_CHARS:-48000}
+      - RETRIEVAL_NEIGHBOR_CHUNKS=${RETRIEVAL_NEIGHBOR_CHUNKS:-1}
+    depends_on:
+      - qdrant
+    restart: on-failure
+    networks:
+      - chatbot-net
+
+  import-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.worker"]
+    container_name: chatbot-import-worker
+    volumes:
+      - backend_data:/app/data
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - DATA_DIR=/app/data
+      - PDF_EXTRACTOR=${PDF_EXTRACTOR:-docling}
+      - PDF_MAX_PAGES=${PDF_MAX_PAGES:-300}
+      - PDF_CONVERSION_TIMEOUT=${PDF_CONVERSION_TIMEOUT:-180}
+      - PDF_DEVICE=${PDF_DEVICE:-cpu}
+      - PDF_CPU_THREADS=${PDF_CPU_THREADS:-4}
+      - IMPORT_WORKER_POLL_SECONDS=${IMPORT_WORKER_POLL_SECONDS:-3}
+      - IMPORT_WORKER_LEASE_SECONDS=${IMPORT_WORKER_LEASE_SECONDS:-600}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_EMBEDDING_API_KEY=${OPENAI_EMBEDDING_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - SUPABASE_URL=${SUPABASE_URL:-https://supabase.intecha.dev}
+      - SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV}
+      - SUPABASE_ADMIN_KEY=${SUPABASE_ADMIN_KEY:-}
+    depends_on:
+      - qdrant
+    restart: on-failure
+    networks:
+      - chatbot-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chatbot-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=
+      - VITE_SUPABASE_URL=${SUPABASE_URL:-https://supabase.intecha.dev}
+      - VITE_SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY:-sb_publishable_eOn6jCKOJYVPzRh39CQIFJ_0zYEU4iV}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - chatbot-net
+    stdin_open: true
+    tty: true
+
+volumes:
+  anonymizer_data:
+  qdrant_storage:
+  backend_data:
+
+networks:
+  chatbot-net:
+    driver: bridge

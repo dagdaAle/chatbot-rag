@@ -1,5 +1,7 @@
 # Ricerca ibrida
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
 La ricerca combina due classifiche Qdrant:
 
 - il vettore denso dell'embedding trova passaggi semanticamente affini;

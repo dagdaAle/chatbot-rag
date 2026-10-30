@@ -1,5 +1,7 @@
 # Listini strutturati e versioni
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
 Questa funzione separa le domande numeriche dal normale RAG testuale. Durante
 l'importazione, ogni tabella Docling con un'intestazione esplicita riconducibile a
 prezzo, importo, tariffa o costo viene trasformata in righe tipizzate. Per ciascun

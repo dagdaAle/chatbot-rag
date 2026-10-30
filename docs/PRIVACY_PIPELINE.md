@@ -1,5 +1,7 @@
 # Protezione chatbot → Anonymizer → DeepSeek
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
 La ricerca ibrida/gerarchica usa i dati originali nell'infrastruttura applicativa.
 Prima di ogni chiamata chat esterna, il backend invia domanda, cronologia
 server-side, prompt di sistema e contesto a `/v1/protect` dell'Anonymizer.

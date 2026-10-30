@@ -1,5 +1,7 @@
 # RAG agentico con DeepSeek Flash
 
+> Documento del prodotto legacy conservato. Per il runtime attuale e il collegamento Anonymizer vedere [OPENWEBUI.md](OPENWEBUI.md).
+
 La chat DeepSeek approfondisce la domanda con strumenti in sola lettura.
 Restano FastAPI, Supabase/RLS, Docling, Qdrant, embedding locali e listini SQLite.
 Non occorre reindicizzare i documenti o installare un framework agentico.
