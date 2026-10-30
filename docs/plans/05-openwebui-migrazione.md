@@ -57,3 +57,14 @@ riavviare WebUI. Istanza temporanea senza volumi utente: saluto con builtin
 predefiniti riuscito e RAG su documento interamente sintetico riuscito (HTTP 200,
 risposta attesa, citazioni, nessun errore o segnaposto). Entrambi i servizi healthy.
 Nessuna chat o documento reale usato nel collaudo.
+
+### Collaudo dal browser autenticato e redeploy
+
+Il primo deploy versionato è `d98355a`. La sessione reale ha rilevato ulteriori
+falsi positivi sulle etichette pubbliche calendario `location` e `rrule`: il fixture
+con database nuovo non riproduceva tutti i flag funzionalità della produzione.
+Correzione limitata alle chiavi/riferimenti strutturali, valori sempre protetti.
+`required` viene verificato come invariante per evitare riferimenti riscritti in
+modo incoerente con le proprietà. Suite portata a 37 test. `builtin-smoke.py`
+verifica gli schemi builtin effettivamente abilitati e il contesto chat salvata,
+usando esclusivamente identità e messaggio sintetici e nessun contenuto utente.

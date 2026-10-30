@@ -284,3 +284,26 @@ def test_invented_token_in_tool_argument_key_rejected(setup):
     s.answer=lambda data:{'content':None,'tool_calls':[{'id':'call_a','type':'function','function':{'name':'search','arguments':json.dumps({'<PII_...>':'value'})}}]}
     response=post(client,{'model':'deepseek-flash','tools':[tool],'messages':[{'role':'user','content':'ciao'}]})
     assert response.status_code==502 and not s.maps
+
+
+@pytest.mark.parametrize('key',['location','rrule'])
+def test_public_calendar_schema_keys_are_stable_but_values_protected(setup,key):
+    client,s=setup
+    s.recognized.append(key)
+    tool={'type':'function','function':{'name':'calendar_tool','parameters':{
+          'type':'object','properties':{key:{'type':'string'}},'required':[key]}}}
+    # Required references stay consistent with keys; values still get protected.
+    body={'model':'deepseek-flash','tools':[tool],'messages':[
+          {'role':'assistant','tool_calls':[{'id':'call_a','type':'function','function':{
+           'name':'calendar_tool','arguments':json.dumps({key:'Mario Rossi '+key})}}]},
+          {'role':'tool','tool_call_id':'call_a','content':'ciao'},
+          {'role':'user','content':'Mario Rossi '+key}]}
+    response=post(client,body)
+    assert response.status_code==200,response.text
+    payload=s.provider_payloads[0]
+    assert key in payload['tools'][0]['function']['parameters']['properties']
+    assert payload['tools'][0]['function']['parameters']['required']==[key]
+    protected=json.loads(payload['messages'][1]['tool_calls'][0]['function']['arguments'])
+    assert key in protected and key not in protected[key] and 'Mario Rossi' not in protected[key]
+    assert key not in payload['messages'][-1]['content']
+    assert not s.maps

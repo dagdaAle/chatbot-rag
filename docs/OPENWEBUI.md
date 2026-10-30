@@ -89,7 +89,8 @@ Gli script in `deploy/openwebui/` hanno controlli specifici per questo server:
 3. `migrate.py`: dentro WebUI con `PYTHONPATH=/app/backend`, stadi users/documents/chats.
    Richiede il backup in `/tmp/intecha-migration`; `state.json` rende riprendibili gli stadi.
 4. `verify-migration.py`: controlli locali senza chiamate LLM esterne.
-5. `synthetic-smoke.py`: WebUI temporaneo isolato, dati solo fittizi e rimozione del fixture.
+5. `builtin-smoke.py`: verifica gli schemi pubblici dei builtin con flag di produzione e chat salvata, senza dati utente.
+6. `synthetic-smoke.py`: WebUI temporaneo isolato, dati solo fittizi e rimozione del fixture.
 
 I file `auth.json` e `legacy.json` sono sensibili: restano solo sul server con accesso
 ristretto. Copiare `state.json` fuori dal container prima di ricrearlo. Non avviare
@@ -121,7 +122,7 @@ Coolify con i nomi originali. Il rollback live usa i container/volumi registrati
 
 ## Verifiche
 
-- Suite gateway con provider/Anonymizer simulati: 35 test passati.
+- Suite gateway con provider/Anonymizer simulati: 37 test passati.
 - Chiamate reali DeepSeek con dati sintetici: protezione/ripristino e SSE verificati.
 - Istanza WebUI isolata: login, modelli, upload, KB, retrieval e risposta corretta con
   citazione su documento INTECHA-42 fittizio; nessun segnaposto esposto.

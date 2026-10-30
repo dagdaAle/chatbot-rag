@@ -12,8 +12,11 @@ e campi testuali degli schemi. Le chiavi JSON e gli identificativi protocollo ve
 analizzati come invarianti: se contengono dati riconosciuti come personali, la
 richiesta viene rifiutata prima del provider, senza modificare lo schema.
 Il nome pubblico builtin `ask_user` di Open WebUI v0.12.5 è riconosciuto come costante
-solo nei campi nome-funzione (GLiNER può scambiarlo per un nome utente). Nessuna
-esenzione per contenuti, argomenti, chiavi JSON o altri identificativi. Per più di 64 campi usa protect/extend e una seconda
+solo nei campi nome-funzione (GLiNER può scambiarlo per un nome utente). Le etichette pubbliche calendario `location` e `rrule` sono stabili solo come chiavi
+strutturate e riferimenti `required`. I valori restano protetti, anche quando
+contengono le stesse parole. I riferimenti `required` vengono verificati come
+invarianti per mantenerli coerenti con le proprietà. Nessuna esenzione per valori
+di contenuto/argomenti o identificativi arbitrari. Per più di 64 campi usa protect/extend e una seconda
 passata per propagare le entità riconosciute nei batch successivi. La richiesta al
 provider parte soltanto dopo validazione del protocollo e dei segnaposto.
 

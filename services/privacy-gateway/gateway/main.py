@@ -24,6 +24,9 @@ NAME = re.compile(r"[a-zA-Z0-9_-]{1,128}\Z")
 # GLiNER can classify this literal as a username. Exempt only the function-name
 # slot, never message text, argument values, JSON keys or arbitrary identifiers.
 PUBLIC_TOOL_NAMES = frozenset({"ask_user"})
+# Public calendar schema property names in the same pinned release. These are
+# labels, not their values; all location/rrule text values still get protected.
+PUBLIC_STRUCTURAL_KEYS = frozenset({"location", "rrule"})
 GUIDANCE = "I valori tra parentesi angolari che iniziano con PII sono segnaposto protetti: copiali esattamente e integralmente, senza inventarli o modificarli."
 log = logging.getLogger("intecha.gateway")
 
@@ -135,11 +138,34 @@ def prepare(body, settings):
     def audit_keys(value):
         if isinstance(value, dict):
             for key, item in value.items():
-                audit_identifier(key)
+                if key not in PUBLIC_STRUCTURAL_KEYS:
+                    audit_identifier(key)
                 audit_keys(item)
         elif isinstance(value, list):
             for item in value:
                 audit_keys(item)
+    def walk_schema_strings(value):
+        # JSON Schema `required` entries reference property keys. Audit them as
+        # invariants rather than rewriting them independently of those keys.
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "required" and isinstance(item, list) and all(isinstance(x, str) for x in item):
+                    for name in item:
+                        if name not in PUBLIC_STRUCTURAL_KEYS:
+                            audit_identifier(name)
+                elif isinstance(item, str):
+                    if item:
+                        fields.append((value, key))
+                else:
+                    walk_schema_strings(item)
+        elif isinstance(value, list):
+            for key, item in enumerate(value):
+                if isinstance(item, str):
+                    if item:
+                        fields.append((value, key))
+                else:
+                    walk_schema_strings(item)
+
     for msg in output["messages"]:
         if not isinstance(msg, dict) or set(msg) - {"role", "content", "reasoning_content", "tool_calls", "tool_call_id", "name"}:
             raise GatewayError(400, "Messaggio non supportato.")
@@ -204,7 +230,7 @@ def prepare(body, settings):
             if not isinstance(fn["parameters"], dict):
                 raise GatewayError(400)
             audit_keys(fn["parameters"])
-            walk_strings(fn["parameters"], fields)
+            walk_schema_strings(fn["parameters"])
     choice = output.get("tool_choice")
     if isinstance(choice, dict):
         fn = choice.get("function")
@@ -218,7 +244,10 @@ def prepare(body, settings):
                 fields.append((output, key))
             else:
                 audit_keys(output[key])
-                walk_strings(output[key], fields)
+                if key == "response_format":
+                    walk_schema_strings(output[key])
+                else:
+                    walk_strings(output[key], fields)
     # Free text is allowed only in the explicitly protected structures above.
     for key, value in output.items():
         if key in {"messages", "tools", "response_format", "stop", "tool_choice", "model"}:
